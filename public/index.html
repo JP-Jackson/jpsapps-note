@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#16222E">
-<meta name="app-version" content="1.8.0">
+<meta name="app-version" content="1.9.0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Note">
@@ -263,6 +263,18 @@
   #detail .body{max-width:560px;margin:0 auto;padding:16px}
   #detail img.photo{width:100%;border-radius:12px;border:1px solid var(--line);
     margin-bottom:10px;display:block}
+  .hint{font-size:13px;line-height:1.6;color:var(--ink-2);margin:0 0 12px}
+  .hint code{font:500 12px/1 var(--font-mono);background:var(--bg);
+    border:1px solid var(--line);border-radius:5px;padding:2px 5px}
+  .conn{background:var(--card);border:1px solid var(--line);border-radius:10px;
+    padding:11px 13px;margin-bottom:8px;display:flex;align-items:center;gap:12px}
+  .conn .who{flex:1;min-width:0}
+  .conn .cname{font-size:14px;font-weight:600}
+  .conn .cwhen{font:400 11px/1.6 var(--font-mono);color:var(--ink-2);
+    text-transform:uppercase;letter-spacing:.04em}
+  .conn button{font:600 12px/1 var(--font-ui);padding:9px 12px;border-radius:8px;
+    border:1px solid var(--line);background:var(--bg);color:var(--ink-2);cursor:pointer}
+  .conn button:active{background:var(--line)}
   .meta{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:14px 0}
   .meta dt{font:500 11px/1.6 var(--font-mono);text-transform:uppercase;
     color:var(--ink-2)}
@@ -742,6 +754,13 @@
         <span class="fsample">Compressor 2 tripping on startup — 480V · Il1 O0</span>
       </button>
     </div>
+
+    <h2>Claude</h2>
+    <p class="hint">Connect Note as a tool in the Claude app and it can search the
+      log, read a thing's history and add notes for you. Point it at
+      <code>note.jpsapps.com/mcp</code> — you approve the connection here, on this
+      phone, before anything is granted.</p>
+    <div id="connections"></div>
 
     <h2>Build</h2>
     <dl class="meta" id="buildInfo"><dt>page</dt><dd>—</dd></dl>
@@ -1577,6 +1596,7 @@ document.querySelector("nav").addEventListener("click", (e) => {
    One line per release, newest first. Kept deliberately short: it exists to answer
    "did the thing I asked for actually ship", not to be release notes. */
 const RELEASES = [
+  ["1.9.0", "Connect Note to Claude — it can search the log and add notes for you"],
   ["1.8.0", "Import an HTML or text log as dated entries; copy the Claude prompt"],
   ["1.7.0", "Adding a thing is a real screen; read and edit split; Android back works"],
   ["1.6.0", "Capture rebuilt for one-handed use; places suggested by location; version history"],
@@ -2205,8 +2225,44 @@ $("gear").addEventListener("click", async () => {
     "<dt>page</dt><dd>v" + esc(PAGE_VERSION) + "</dd>" +
     "<dt>server</dt><dd>" + esc(server) + "</dd>";
   renderHistory();
+  renderConnections();
 });
 $("settingsBack").addEventListener("click", () => closeOverlay("settings"));
+
+/* --------------------------------------------------------------- connections
+   What Claude is connected with, and the switch that cuts it off. The consent
+   screen promises this exists, so it has to. */
+async function renderConnections() {
+  const box = $("connections");
+  let list;
+  try {
+    list = (await (await fetch("/api/connections")).json()).connections || [];
+  } catch {
+    box.innerHTML = '<p class="empty">Can\'t reach the server just now.</p>';
+    return;
+  }
+  if (!list.length) {
+    box.innerHTML = '<p class="empty">Nothing connected.</p>';
+    return;
+  }
+  box.innerHTML = list.map((c) =>
+    '<div class="conn"><div class="who">' +
+      '<div class="cname">' + esc(c.client_name || "Unnamed client") + "</div>" +
+      '<div class="cwhen">connected ' +
+        esc(new Date(c.created_at).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })) +
+      "</div>" +
+    '</div><button data-revoke="' + esc(c.token_hash) + '">Disconnect</button></div>',
+  ).join("");
+}
+
+$("connections").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-revoke]");
+  if (!b) return;
+  if (!confirm("Disconnect this? It will have to be approved again from scratch.")) return;
+  b.disabled = true;
+  await fetch("/api/connections/" + encodeURIComponent(b.dataset.revoke), { method: "DELETE" });
+  renderConnections();
+});
 
 /* ------------------------------------------------------------------ splash
    §10: plays on cold start only, skipped on reload by a sessionStorage flag. The app

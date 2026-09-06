@@ -9,7 +9,7 @@
  * API requests are never cached. A cached /api/me or /api/entries would be a lie, and
  * a capture tool that lies about what synced is worse than one that says "offline".
  */
-const CACHE = "note-shell-1.8.0";
+const CACHE = "note-shell-1.9.0";
 const SHELL = ["/", "/icon-192.png", "/icon-512.png", "/manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {
@@ -34,6 +34,11 @@ self.addEventListener("fetch", (e) => {
 
   // Cloudflare Access redirects must reach the network or login breaks.
   if (url.pathname.startsWith("/cdn-cgi/")) return;
+
+  // The MCP connector and its OAuth flow are not the shell. Falling back to the
+  // cached "/" here would answer a consent request with the app itself, which
+  // looks like the flow worked and quietly grants nothing.
+  if (/^\/(oauth|mcp|\.well-known)(\/|$)/.test(url.pathname)) return;
 
   // Network-first for the shell: fresh when online, cached when not.
   e.respondWith(

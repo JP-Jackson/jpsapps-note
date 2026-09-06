@@ -3,11 +3,12 @@
  *
  * Routing and HTTP concerns only. No SQL here or anywhere outside src/db.ts.
  *
- * URL layout is reserved deliberately (NOTE_SPEC.md §8a): /mcp and /oauth/* are for
- * the MCP connector in phase 6. Claude connects from Anthropic's cloud, which cannot
- * complete a Cloudflare Access login, so those paths must be EXCLUDED from the Access
- * application and carry their own OAuth. Nothing is built there yet; the paths are
- * reserved so the Access app can be scoped correctly from day one.
+ * Two auth regimes live here (NOTE_SPEC.md §8a). Everything under /api is a browser
+ * and is authenticated by Cloudflare Access. /mcp is Claude, connecting from
+ * Anthropic's cloud with no way to complete an Access login, and is authenticated by
+ * an OAuth bearer token instead — so /mcp, /oauth/token, /oauth/register and the
+ * two .well-known documents must be EXCLUDED from the Access application, while
+ * /oauth/authorize stays inside it. Access is what decides who may grant a token.
  */
 
 import { Hono } from "hono";
@@ -16,6 +17,19 @@ import { Db, VersionConflict } from "./db";
 import { photoKey } from "./ids";
 import { VERSION } from "./version";
 import { authenticate, AuthError, type Session } from "./auth";
+import { handleMcp } from "./mcp";
+import {
+  CORS,
+  authServerMetadata,
+  bearerUser,
+  handleAuthorizeGet,
+  handleAuthorizePost,
+  handleRegister,
+  handleRevoke,
+  handleToken,
+  protectedResourceMetadata,
+  unauthorized,
+} from "./oauth";
 
 type Vars = { session: Session; db: Db };
 
@@ -27,6 +41,17 @@ function haversine(aLat: number, aLng: number, bLat: number, bLng: number): numb
     Math.cos(aLat * rad) * Math.cos(bLat * rad) * Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(h));
 }
+/**
+ * The MCP signing key.
+ *
+ * Missing means the secret was never set, and a fixed fallback would quietly issue
+ * client ids anyone could forge. Failing loudly is the only safe reading.
+ */
+function secretOf(env: Env): string {
+  if (!env.OAUTH_SECRET) throw new Error("OAUTH_SECRET is not set; run wrangler secret put");
+  return env.OAUTH_SECRET;
+}
+
 const app = new Hono<{ Bindings: Env; Variables: Vars }>();
 
 /** Liveness + schema probe. No auth: it must answer before login works. */
@@ -427,6 +452,76 @@ app.patch("/api/subjects/:id", async (c) => {
   const detail = await db.subjectDetail(id);
   if (!detail) return c.json({ error: "No such subject" }, 404);
   return c.json(detail);
+});
+
+
+// ---------------------------------------------------------------------- MCP
+// Public paths. These must be excluded from the Access application (see the note
+// at the top of this file); Access would answer them with a login page, and a
+// login page is not something a server can fill in.
+
+// Discovery. Some clients probe the endpoint-suffixed form (RFC 8414 §3.1) before
+// the plain one, so both are answered rather than making the client guess twice.
+// Cloudflare terminates TLS ahead of the Worker, so the inbound URL can read as
+// http even though every real caller arrived over https. The issuer in these
+// documents has to match what the client actually dialled, or discovery fails.
+const origin = (c: { req: { url: string } }) => {
+  const u = new URL(c.req.url);
+  const local = u.hostname === "localhost" || u.hostname === "127.0.0.1";
+  return `${local ? u.protocol : "https:"}//${u.host}`;
+};
+
+app.get("/.well-known/oauth-authorization-server", (c) => authServerMetadata(origin(c)));
+app.get("/.well-known/oauth-authorization-server/mcp", (c) => authServerMetadata(origin(c)));
+app.get("/.well-known/oauth-protected-resource", (c) => protectedResourceMetadata(origin(c)));
+app.get("/.well-known/oauth-protected-resource/mcp", (c) => protectedResourceMetadata(origin(c)));
+
+app.options("/oauth/*", (c) => c.body(null, 204, CORS));
+app.options("/mcp", (c) => c.body(null, 204, CORS));
+
+app.post("/oauth/register", (c) => handleRegister(c.req.raw, secretOf(c.env)));
+app.post("/oauth/token", (c) => handleToken(c.req.raw, c.env.DB, secretOf(c.env)));
+app.post("/oauth/revoke", (c) => handleRevoke(c.req.raw, c.env.DB));
+
+/**
+ * Consent. Inside the Access application on purpose: Access has already proved who
+ * is looking at this page, so pressing Connect is JP granting the token and nobody
+ * else can reach the button.
+ */
+app.on(["GET", "POST"], "/oauth/authorize", async (c) => {
+  let session: Session;
+  try {
+    session = await authenticate(c.req.raw, c.env);
+  } catch (err) {
+    if (err instanceof AuthError) return c.json({ error: err.message }, err.status);
+    throw err;
+  }
+  const secret = secretOf(c.env);
+  if (c.req.method === "GET") {
+    return handleAuthorizeGet(c.req.raw, secret, session.email);
+  }
+  const db = new Db(c.env.DB, session.userId);
+  db.absorb(session.cost);
+  const res = await handleAuthorizePost(c.req.raw, secret, db);
+  c.executionCtx.waitUntil(db.flushUsage());
+  return res;
+});
+
+/** The connector itself. The bearer token is the only thing standing in front. */
+app.all("/mcp", async (c) => {
+  const userId = await bearerUser(c.req.raw, c.env.DB);
+  if (!userId) return unauthorized(origin(c));
+  return handleMcp(c.req.raw, c.env.DB, userId);
+});
+
+/** What Claude is connected to, and the switch that cuts it off. */
+app.get("/api/connections", async (c) => {
+  return c.json({ connections: await c.get("db").connections() });
+});
+
+app.delete("/api/connections/:hash", async (c) => {
+  const gone = await c.get("db").revokeConnection(decodeURIComponent(c.req.param("hash")));
+  return gone ? c.json({ revoked: true }) : c.json({ error: "No such connection" }, 404);
 });
 
 /** Ends the Cloudflare Access session, not just the app session. */

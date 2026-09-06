@@ -1,6 +1,6 @@
 {
   "name": "jpsapps-note",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "description": "Note — a capture-first day log for work and home",
   "scripts": {
     "dev": "wrangler dev",
@@ -25,6 +25,7 @@
     "wrangler": "^4.129.0"
   },
   "dependencies": {
+    "@cloudflare/workers-oauth-provider": "^0.10.3",
     "hono": "^4.13.7"
   },
   "private": true,

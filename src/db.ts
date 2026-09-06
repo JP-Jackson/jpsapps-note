@@ -165,6 +165,31 @@ function noCost(): QueryCost {
   return { rows_read: 0, rows_written: 0 };
 }
 
+export interface AuthCode {
+  user_id: string;
+  client_id: string;
+  client_name: string | null;
+  redirect_uri: string;
+  code_challenge: string;
+}
+
+export interface TokenRow {
+  user_id: string;
+  client_id: string;
+  client_name: string | null;
+  kind: string;
+  expires_at: number;
+}
+
+/** One live MCP connection, as the settings screen shows it. */
+export interface ConnectionRow {
+  token_hash: string;
+  client_name: string | null;
+  created_at: number;
+  last_used_at: number | null;
+  expires_at: number;
+}
+
 export class Db {
   private readonly d1: D1Database;
   readonly userId: string;
@@ -263,6 +288,83 @@ export class Db {
     if (!allowed.includes(email.toLowerCase())) return { user: null, cost };
 
     return { user: await Db.createUser(d1, email, null, cost), cost };
+  }
+
+  // ------------------------------------------------------------------- OAuth
+  // Static for the same reason as the lookups above: the token exchange happens
+  // before any session exists — the code is what establishes who the user is.
+  // Only hashes are passed in; this file never sees a token in the clear.
+
+  /** Redeem an authorisation code. Single use: the row is deleted as it is read. */
+  static async consumeAuthCode(d1: D1Database, codeHash: string): Promise<AuthCode | null> {
+    const res = await d1
+      .prepare(
+        `DELETE FROM oauth_codes WHERE code_hash = ? AND expires_at > ?
+         RETURNING user_id, client_id, client_name, redirect_uri, code_challenge`,
+      )
+      .bind(codeHash, Date.now())
+      .all<AuthCode>();
+    return res.results[0] ?? null;
+  }
+
+  /**
+   * Look up a bearer token.
+   *
+   * `last_used_at` is deliberately not written here. It would turn every MCP call
+   * into a write, and the only thing it buys is a nicer line on the settings
+   * screen; the token exchange already stamps it.
+   */
+  static async findToken(d1: D1Database, tokenHash: string, kind: string): Promise<TokenRow | null> {
+    const res = await d1
+      .prepare(
+        `SELECT user_id, client_id, client_name, kind, expires_at FROM oauth_tokens
+          WHERE token_hash = ? AND kind = ? AND revoked_at IS NULL AND expires_at > ?`,
+      )
+      .bind(tokenHash, kind, Date.now())
+      .all<TokenRow>();
+    return res.results[0] ?? null;
+  }
+
+  /** Issue an access/refresh pair. Written together so neither can exist alone. */
+  static async issueTokens(
+    d1: D1Database,
+    t: {
+      userId: string;
+      clientId: string;
+      clientName: string | null;
+      accessHash: string;
+      accessExpiresAt: number;
+      refreshHash: string;
+      refreshExpiresAt: number;
+    },
+  ): Promise<void> {
+    const now = Date.now();
+    const stmt = (hash: string, kind: string, expires: number) =>
+      d1
+        .prepare(
+          `INSERT INTO oauth_tokens
+             (token_hash, user_id, client_id, client_name, kind, created_at, expires_at, last_used_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(hash, t.userId, t.clientId, t.clientName, kind, now, expires, now);
+    await d1.batch([
+      stmt(t.accessHash, "access", t.accessExpiresAt),
+      stmt(t.refreshHash, "refresh", t.refreshExpiresAt),
+    ]);
+  }
+
+  /**
+   * Retire a refresh token as it is spent.
+   *
+   * Rotation is the point: a refresh token used twice means one of the two holders
+   * is not the client we issued it to, and revoking on first use is what makes that
+   * detectable rather than silent.
+   */
+  static async revokeTokenHash(d1: D1Database, tokenHash: string): Promise<void> {
+    await d1
+      .prepare("UPDATE oauth_tokens SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL")
+      .bind(Date.now(), tokenHash)
+      .run();
   }
 
   // -------------------------------------------------------------- user-scoped
@@ -788,6 +890,82 @@ export class Db {
         )
         .bind(entryId, this.userId),
     );
+  }
+
+  // ----------------------------------------------------------- OAuth, scoped
+
+  /**
+   * Park an authorisation code for the token exchange to redeem.
+   *
+   * Two minutes is the whole window: the client already holds the redirect and is
+   * about to POST it back, so anything longer is only extra time for a code sitting
+   * in a browser history to be useful to someone else.
+   */
+  async saveAuthCode(c: {
+    codeHash: string;
+    clientId: string;
+    clientName: string | null;
+    redirectUri: string;
+    codeChallenge: string;
+  }): Promise<void> {
+    const now = Date.now();
+    await this.run(
+      this.d1
+        .prepare(
+          `INSERT INTO oauth_codes
+             (code_hash, user_id, client_id, client_name, redirect_uri, code_challenge, created_at, expires_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          c.codeHash,
+          this.userId,
+          c.clientId,
+          c.clientName,
+          c.redirectUri,
+          c.codeChallenge,
+          now,
+          now + 120_000,
+        ),
+    );
+  }
+
+  /** Live connections, newest first. Access tokens only — one row per connection. */
+  async connections(): Promise<ConnectionRow[]> {
+    return this.all<ConnectionRow>(
+      this.d1
+        .prepare(
+          `SELECT token_hash, client_name, created_at, last_used_at, expires_at
+             FROM oauth_tokens
+            WHERE user_id = ? AND kind = 'access' AND revoked_at IS NULL AND expires_at > ?
+            ORDER BY created_at DESC`,
+        )
+        .bind(this.userId, Date.now()),
+    );
+  }
+
+  /**
+   * Cut off a connection.
+   *
+   * The refresh token issued alongside goes too — revoking only the access token
+   * would let the client mint a new one within the hour, which is not what anyone
+   * means by "disconnect".
+   */
+  async revokeConnection(tokenHash: string): Promise<boolean> {
+    const row = await this.first<{ client_id: string; created_at: number }>(
+      this.d1
+        .prepare("SELECT client_id, created_at FROM oauth_tokens WHERE token_hash = ? AND user_id = ?")
+        .bind(tokenHash, this.userId),
+    );
+    if (!row) return false;
+    await this.run(
+      this.d1
+        .prepare(
+          `UPDATE oauth_tokens SET revoked_at = ?
+            WHERE user_id = ? AND client_id = ? AND revoked_at IS NULL`,
+        )
+        .bind(Date.now(), this.userId, row.client_id),
+    );
+    return true;
   }
 
   /**
