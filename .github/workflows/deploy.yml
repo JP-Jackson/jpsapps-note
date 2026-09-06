@@ -1,0 +1,46 @@
+# Deploy the Worker to Cloudflare on every push to main.
+#
+# Pushing to GitHub is not what publishes the app — this workflow is. Without it,
+# production keeps serving the previous version until someone runs `wrangler deploy`
+# by hand, which is an easy way to think you have shipped something you have not.
+#
+# Migrations are deliberately NOT here. See migrate.yml.
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+  workflow_dispatch:
+
+# Never let two deploys race. Queue rather than cancel: a half-finished upload that
+# gets cancelled is worse than waiting for the one in front.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Typecheck gates the deploy. A push that does not compile must not reach
+      # production, and this is the whole reason the deploy is not just a wrangler call.
+      - run: npm run typecheck
+
+      # Uses the wrangler pinned in package.json, so CI and a local deploy are the
+      # same version and cannot drift apart.
+      - run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

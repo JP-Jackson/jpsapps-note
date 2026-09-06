@@ -27,6 +27,40 @@ const db = new Db(env.DB, session.userId);  // built once, in middleware
 await db.usageToday();                       // handlers never pass a user_id
 ```
 
+## Deploying
+
+**Pushing to GitHub does not publish the app.** GitHub holds the source; Cloudflare
+runs it. Merging to `main` triggers `.github/workflows/deploy.yml`, which typechecks
+and then uploads the Worker — that upload is what publishes. Roughly 40 seconds.
+
+Deploy by hand when you need to:
+
+```bash
+npm run deploy
+```
+
+Migrations are **not** part of the deploy. Run them from the Actions tab
+(*Migrate (remote D1)*, type `migrate` to confirm) or locally with `npm run db:migrate`.
+A deploy is undone by redeploying the previous version; a dropped column is not, so
+migrating is a decision rather than a side effect of merging.
+
+### Required repository secrets
+
+| Secret | Value |
+|---|---|
+| `CLOUDFLARE_API_TOKEN` | API token with the permissions below |
+| `CLOUDFLARE_ACCOUNT_ID` | `bf9f771dae485c448a5740c54ca5771d` |
+
+Token permissions (Account resource = the jpsappshq account, Zone = `jpsapps.com`):
+
+- Account → **Workers Scripts** → Edit
+- Account → **D1** → Edit
+- Account → **Workers R2 Storage** → Edit
+- Zone → **Workers Routes** → Edit
+
+Scope it to deploying. The token used to build phase 1 also carries DNS and
+Access: Apps and Policies, which a CI job has no business holding.
+
 ## Layout
 
 ```

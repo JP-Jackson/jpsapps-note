@@ -1,0 +1,42 @@
+# Apply D1 migrations to the REMOTE (production) database.
+#
+# Manual on purpose. A migration is the one thing in this repo that is genuinely hard
+# to undo — a deploy can be rolled back by redeploying the previous version, a dropped
+# column cannot. Wiring this into every push to main would mean a bad migration
+# reaching production the moment it merged, with nobody looking.
+#
+# Run it from the Actions tab when you actually intend to migrate.
+
+name: Migrate (remote D1)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "migrate" to confirm applying migrations to production'
+        required: true
+        default: ""
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check confirmation
+        if: inputs.confirm != 'migrate'
+        run: |
+          echo "Confirmation did not match. Type 'migrate' to proceed." >&2
+          exit 1
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run db:migrate
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
