@@ -99,12 +99,13 @@ Nothing blocking. Phase 1 is complete pending JP's first login.
 - Add **Google** as an IdP if biometric/passkey unlock is wanted (§7). One-time PIN
   works today; adding an IdP later changes neither the AUD tag nor the team domain, so
   it breaks nothing.
-- Phase 6 will need `/mcp` and `/oauth/*` **excluded** from Access. The mechanism is a
-  second application on those paths with a **Bypass** policy — Access matches the most
-  specific path first. Not done, because nothing is served there yet.
-- **`Access controls → MCP Portals` (Beta)** now exists in the dashboard. Spec §8a
-  assumed Cloudflare-hosted remote MCP with OAuth built in; this looks like exactly
-  that. Evaluate it before hand-rolling the connector.
+- ~~Phase 6 will need `/mcp` and `/oauth/*` excluded from Access.~~ **Done in 1.9.0.**
+  Six bypass applications, one per public path; Access matches the most specific path
+  first. `/oauth/authorize` is deliberately left inside Access — it is what makes JP
+  the only person who can grant a token. See README, "Two auth regimes".
+- **`Access controls → MCP Portals` (Beta)** was not used. It fronts an MCP server with
+  Access, which is the thing that cannot work here: Anthropic's cloud has no way to
+  complete an Access login. Access is still the gate, but on the consent screen.
 - Revoke the `Note-JpsApps` API token when convenient. It carries D1, R2, Workers
   Scripts, Workers Routes, DNS, Zone Read and Access: Apps and Policies — all Edit.
 
@@ -145,8 +146,12 @@ the Access step, not cosmetics.
   biometric with no code: Cloudflare IdP login method + a passkey on the Cloudflare
   account. Do not hand-roll WebAuthn in phase 1.
 - **Access would break the MCP connector.** Anthropic's cloud cannot complete an Access
-  login, so `/mcp` and `/oauth/*` must be **excluded** from the Access application.
-  Paths are reserved; nothing built there yet.
+  login. Resolved in 1.9.0: those paths bypass Access and carry OAuth instead.
+- **Workers KV is unreachable with the current token** (`Authentication error [code:
+  10000]`; D1 and Access on the same token are fine). This stopped
+  `@cloudflare/workers-oauth-provider`, which is KV-backed — so OAuth went into D1
+  instead. That turned out to be the right call regardless: KV would have put
+  authorisation outside `src/db.ts`. **No permission needs adding.**
 - **`img.jpsapps.com` makes the bucket world-readable.** Deliberate per §3, mitigated
   with unguessable keys (`src/ids.ts`).
 - **Spec omitted `user_id` on `entry_subjects` and `subject_attributes`**, contradicting
@@ -157,5 +162,6 @@ the Access step, not cosmetics.
 ## Open, JP's call
 
 - Hono was chosen for routing (defaulted, easily reversed)
-- Whether the MCP endpoint gets path-exclusion or its own `mcp.jpsapps.com`
+- ~~Whether the MCP endpoint gets path-exclusion or its own `mcp.jpsapps.com`~~ —
+  path-exclusion, shipped in 1.9.0
 - Revoke the `Note-JpsApps` API token when phase 1 closes

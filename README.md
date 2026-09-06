@@ -139,13 +139,40 @@ Cloudflare's own auth, and the biometric still never leaves the device, which is
 property §7 actually wants. A true in-app WebAuthn unlock would mean hand-rolling
 WebAuthn in the Worker, contradicting "Access handles login."
 
-### Scope the Access application carefully
+### Two auth regimes, and why the Access application has holes in it
 
-`/mcp` and `/oauth/*` are reserved for the MCP connector (spec §8a) and **must be
-excluded from the Access application**. Claude connects from Anthropic's cloud, which
-cannot complete an Access login — if Access covers the whole hostname, the connector
-is dead on arrival in phase 6. Nothing is built there yet; the paths are reserved so
-the Access app can be scoped right from the start.
+Everything under `/api` is a browser and is authenticated by Cloudflare Access.
+`/mcp` is Claude, connecting from Anthropic's cloud with no way to complete an Access
+login, so it is authenticated by an OAuth bearer token instead (spec §8a).
+
+Six paths are therefore **excluded from the Access application** by their own
+bypass applications — a more specific path wins over the hostname-wide one:
+
+    /mcp
+    /oauth/token
+    /oauth/register
+    /oauth/revoke
+    /.well-known/oauth-authorization-server
+    /.well-known/oauth-protected-resource
+
+`/oauth/authorize` is deliberately **not** in that list. It stays inside Access, so
+the consent screen is only ever reachable by someone Access has already logged in.
+That is the whole security model: Access decides who may grant a token, and the token
+is what a server can carry.
+
+The OAuth server is hand-written (`src/oauth.ts`) rather than taken from
+`@cloudflare/workers-oauth-provider`, which stores its state in Workers KV. That
+would put authorisation outside `src/db.ts`, and one module for all database access
+is worth more than the code it saves. Two D1 tables (migration `0003_oauth.sql`) hold
+authorisation codes and token hashes; registered clients are signed into their own
+`client_id` and stored nowhere.
+
+Requires the `OAUTH_SECRET` secret:
+
+    npx wrangler secret put OAUTH_SECRET
+
+Without it, every OAuth route fails loudly. A fallback would quietly issue client ids
+anyone could forge.
 
 ## Photos and `img.jpsapps.com`
 

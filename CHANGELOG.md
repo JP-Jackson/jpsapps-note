@@ -3,6 +3,20 @@
 Mirrors the list shown in Settings. One line per release — enough to answer
 "did the thing I asked for actually ship", not full release notes.
 
+## 1.9.0
+Note connects to Claude over MCP. Seven tools: search the log, read a day, list
+open items, read a thing's whole history, add a thing, add a note. `/mcp` sits
+outside Cloudflare Access with its own OAuth; the consent screen stays inside it.
+Settings lists live connections and can disconnect them.
+
+## 1.8.0
+Import an HTML or text log as dated entries, and a copy button for the prompt that
+tells Claude what shape to hand back.
+
+## 1.7.0
+Adding a thing is a real screen with a worked example. Read and edit are separate.
+The Android back button moves back a screen instead of closing the app.
+
 ## 1.6.0
 Capture rebuilt for one-handed use: everything you touch to finish a capture now
 sits in the bottom third, with Save furthest right. Places are matched by
