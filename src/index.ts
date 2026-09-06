@@ -105,6 +105,15 @@ app.post("/api/entries", async (c) => {
     is_open: e.is_open === true,
   });
 
+  // §4: one capture can touch a site, a panel and the device on it, so this is a
+  // list rather than a column on entries.
+  if (Array.isArray(e.subject_ids) && e.subject_ids.length) {
+    await c.get("db").linkEntrySubjects(
+      id,
+      (e.subject_ids as unknown[]).filter((v): v is string => typeof v === "string"),
+    );
+  }
+
   return c.json({ id, created }, created ? 201 : 200);
 });
 
@@ -148,6 +157,7 @@ app.get("/api/entries/:id", async (c) => {
   if (!detail) return c.json({ error: "No such entry" }, 404);
   return c.json({
     ...detail,
+    subjects: await c.get("db").entrySubjects(c.req.param("id")),
     photos: detail.attachments
       .filter((a) => a.kind === "photo" && a.r2_key)
       .map((a) => ({ id: a.id, url: `${c.env.IMG_BASE}/${a.r2_key}` })),
@@ -241,6 +251,126 @@ app.post("/api/photos", async (c) => {
   });
 
   return c.json({ id, key, url: `${c.env.IMG_BASE}/${key}` }, 201);
+});
+
+/* ------------------------------------------------------------------- subjects */
+
+/** What to ask when adding each type of subject (§4). */
+app.get("/api/templates", async (c) => {
+  return c.json({ templates: await c.get("db").templates() });
+});
+
+app.get("/api/subjects", async (c) => {
+  const includeArchived = c.req.query("archived") === "1";
+  return c.json({ subjects: await c.get("db").listSubjects(includeArchived) });
+});
+
+app.post("/api/subjects", async (c) => {
+  let body: Record<string, unknown>;
+  try {
+    body = (await c.req.json()) as Record<string, unknown>;
+  } catch {
+    return c.json({ error: "Body must be JSON" }, 400);
+  }
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  const type = typeof body.type === "string" ? body.type : "generic";
+  const context = typeof body.context === "string" ? body.context : "";
+  if (!name) return c.json({ error: "name is required" }, 400);
+  if (!context) return c.json({ error: "context is required" }, 400);
+
+  const db = c.get("db");
+  const id = await db.createSubject({ name, type, context });
+  if (Array.isArray(body.attributes)) {
+    await db.setAttributes(id, body.attributes as never);
+  }
+  return c.json({ id }, 201);
+});
+
+/**
+ * Bulk import (§11 phase 4): paste a Claude-structured list and get subjects.
+ *
+ * Day one means typing in a shop full of equipment, which is exactly the chore that
+ * stops a tool being adopted. Anything that fails is reported per row rather than
+ * failing the batch — a typo in item nine should not discard the other eleven.
+ */
+app.post("/api/subjects/import", async (c) => {
+  let body: { subjects?: unknown };
+  try {
+    body = (await c.req.json()) as { subjects?: unknown };
+  } catch {
+    return c.json({ error: "Body must be JSON" }, 400);
+  }
+  if (!Array.isArray(body.subjects)) {
+    return c.json({ error: "Expected { subjects: [...] }" }, 400);
+  }
+  if (body.subjects.length > 200) {
+    return c.json({ error: "Import at most 200 at a time" }, 413);
+  }
+
+  const db = c.get("db");
+  const created: string[] = [];
+  const failed: { row: number; error: string }[] = [];
+
+  for (const [i, raw] of body.subjects.entries()) {
+    const item = raw as Record<string, unknown>;
+    const name = typeof item?.name === "string" ? item.name.trim() : "";
+    const context = typeof item?.context === "string" ? item.context : "";
+    if (!name || !context) {
+      failed.push({ row: i, error: "name and context are required" });
+      continue;
+    }
+    try {
+      const id = await db.createSubject({
+        name,
+        type: typeof item.type === "string" ? item.type : "generic",
+        context,
+      });
+      if (item.attributes && typeof item.attributes === "object") {
+        const attrs = Object.entries(item.attributes as Record<string, unknown>)
+          .map(([key, value], n) => ({ key, value: value == null ? null : String(value), sort_order: n }));
+        if (attrs.length) await db.setAttributes(id, attrs);
+      }
+      created.push(id);
+    } catch (e) {
+      failed.push({ row: i, error: e instanceof Error ? e.message : "failed" });
+    }
+  }
+  return c.json({ created: created.length, failed }, created.length ? 201 : 400);
+});
+
+app.get("/api/subjects/:id", async (c) => {
+  const detail = await c.get("db").subjectDetail(c.req.param("id"));
+  if (!detail) return c.json({ error: "No such subject" }, 404);
+  return c.json({
+    ...detail,
+    photos: detail.attachments
+      .filter((a) => a.kind === "photo" && a.r2_key)
+      .map((a) => ({ id: a.id, url: `${c.env.IMG_BASE}/${a.r2_key}` })),
+  });
+});
+
+app.patch("/api/subjects/:id", async (c) => {
+  const id = c.req.param("id");
+  const db = c.get("db");
+  let body: Record<string, unknown>;
+  try {
+    body = (await c.req.json()) as Record<string, unknown>;
+  } catch {
+    return c.json({ error: "Body must be JSON" }, 400);
+  }
+
+  if (typeof body.archived === "boolean") await db.archiveSubject(id, body.archived);
+  if (Array.isArray(body.attributes)) await db.setAttributes(id, body.attributes as never);
+
+  const patch: Record<string, unknown> = {};
+  for (const k of ["name", "context", "visibility", "hero_photo_id"]) {
+    if (typeof body[k] === "string") patch[k] = body[k];
+  }
+  if (Object.keys(patch).length) await db.updateSubject(id, patch);
+
+  const detail = await db.subjectDetail(id);
+  if (!detail) return c.json({ error: "No such subject" }, 404);
+  return c.json(detail);
 });
 
 /** Ends the Cloudflare Access session, not just the app session. */

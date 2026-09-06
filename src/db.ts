@@ -90,6 +90,42 @@ export interface NewAttachment {
   bytes: number;
 }
 
+export interface SubjectRow {
+  id: string;
+  name: string;
+  type: string;
+  context: string;
+  visibility: string;
+  hero_photo_id: string | null;
+  created_at: number;
+  archived_at: number | null;
+}
+
+export interface AttributeRow {
+  key: string;
+  value: string | null;
+  sort_order: number;
+}
+
+export interface TemplateField {
+  type: string;
+  key: string;
+  label: string;
+  sort_order: number;
+}
+
+export interface SubjectDetail extends SubjectRow {
+  attributes: AttributeRow[];
+  entries: EntryRow[];
+  attachments: AttachmentRow[];
+}
+
+export interface NewSubject {
+  name: string;
+  type: string;
+  context: string;
+}
+
 export interface UsageTotals {
   rows_read: number;
   rows_written: number;
@@ -483,6 +519,190 @@ export class Db {
         .bind(id, this.userId, a.entry_id, a.kind, a.r2_key, a.mime, a.bytes, Date.now()),
     );
     return id;
+  }
+
+  // ----------------------------------------------------------------- subjects
+
+  /** What to ask when adding a subject of a given type (§4). Global reference data. */
+  async templates(): Promise<TemplateField[]> {
+    return this.all<TemplateField>(
+      this.d1.prepare(
+        "SELECT type, key, label, sort_order FROM subject_templates ORDER BY type, sort_order",
+      ),
+    );
+  }
+
+  async listSubjects(includeArchived = false): Promise<SubjectRow[]> {
+    return this.all<SubjectRow>(
+      this.d1
+        .prepare(
+          `SELECT id, name, type, context, visibility, hero_photo_id, created_at, archived_at
+             FROM subjects
+            WHERE user_id = ?` +
+            (includeArchived ? "" : " AND archived_at IS NULL") +
+            ` ORDER BY name COLLATE NOCASE`,
+        )
+        .bind(this.userId),
+    );
+  }
+
+  async createSubject(sub: NewSubject): Promise<string> {
+    const id = newId();
+    await this.run(
+      this.d1
+        .prepare(
+          `INSERT INTO subjects (id, user_id, name, type, context, visibility, created_at)
+           VALUES (?, ?, ?, ?, ?, 'private', ?)`,
+        )
+        .bind(id, this.userId, sub.name, sub.type, sub.context, Date.now()),
+    );
+    return id;
+  }
+
+  /**
+   * A subject with its attributes, its full history, and anything attached to it.
+   *
+   * The history is the point of the page (§8d): the fix you logged last time is in
+   * front of you before you start guessing again.
+   */
+  async subjectDetail(id: string): Promise<SubjectDetail | null> {
+    const row = await this.first<SubjectRow>(
+      this.d1
+        .prepare(
+          `SELECT id, name, type, context, visibility, hero_photo_id, created_at, archived_at
+             FROM subjects WHERE id = ? AND user_id = ?`,
+        )
+        .bind(id, this.userId),
+    );
+    if (!row) return null;
+
+    const attributes = await this.all<AttributeRow>(
+      this.d1
+        .prepare(
+          `SELECT key, value, sort_order FROM subject_attributes
+            WHERE subject_id = ? AND user_id = ? ORDER BY sort_order, key`,
+        )
+        .bind(id, this.userId),
+    );
+
+    const entries = await this.all<EntryRow>(
+      this.d1
+        .prepare(
+          `SELECT e.id, e.created_at, e.synced_at, e.context, e.body, e.body_raw,
+                  e.lat, e.lng, e.is_open
+             FROM entries e
+             JOIN entry_subjects es ON es.entry_id = e.id
+            WHERE es.subject_id = ? AND e.user_id = ? AND e.deleted_at IS NULL
+            ORDER BY e.created_at DESC
+            LIMIT 200`,
+        )
+        .bind(id, this.userId),
+    );
+
+    const attachments = await this.all<AttachmentRow>(
+      this.d1
+        .prepare(
+          `SELECT id, kind, r2_key, mime, bytes, created_at
+             FROM attachments WHERE subject_id = ? AND user_id = ?
+            ORDER BY created_at DESC`,
+        )
+        .bind(id, this.userId),
+    );
+
+    return { ...row, attributes, entries, attachments };
+  }
+
+  /**
+   * Replace a subject's attributes.
+   *
+   * Key-value rather than a column per field (§4), so a new kind of thing never
+   * needs a migration. Sent as a whole set because the edit screen owns the whole
+   * set — a partial merge would make a deleted row indistinguishable from an
+   * untouched one.
+   */
+  async setAttributes(subjectId: string, attrs: AttributeRow[]): Promise<void> {
+    const owned = await this.first<{ id: string }>(
+      this.d1.prepare("SELECT id FROM subjects WHERE id = ? AND user_id = ?")
+        .bind(subjectId, this.userId),
+    );
+    if (!owned) throw new Error("No such subject");
+
+    const stmts: D1PreparedStatement[] = [
+      this.d1.prepare("DELETE FROM subject_attributes WHERE subject_id = ? AND user_id = ?")
+        .bind(subjectId, this.userId),
+    ];
+    attrs
+      .filter((a) => a.key.trim())
+      .forEach((a, i) =>
+        stmts.push(
+          this.d1
+            .prepare(
+              `INSERT INTO subject_attributes (subject_id, user_id, key, value, sort_order)
+               VALUES (?, ?, ?, ?, ?)`,
+            )
+            .bind(subjectId, this.userId, a.key.trim(), a.value ?? null, a.sort_order ?? i),
+        ),
+      );
+    const res = await this.d1.batch(stmts);
+    res.forEach((r) => readMeta(this.meter, r.meta));
+  }
+
+  async updateSubject(
+    id: string,
+    patch: { name?: string; context?: string; visibility?: string; hero_photo_id?: string | null },
+  ): Promise<void> {
+    const sets: string[] = [];
+    const vals: unknown[] = [];
+    for (const [k, v] of Object.entries(patch)) {
+      if (v === undefined) continue;
+      sets.push(`${k} = ?`);
+      vals.push(v);
+    }
+    if (!sets.length) return;
+    await this.run(
+      this.d1
+        .prepare(`UPDATE subjects SET ${sets.join(", ")} WHERE id = ? AND user_id = ?`)
+        .bind(...vals, id, this.userId),
+    );
+  }
+
+  async archiveSubject(id: string, archived: boolean): Promise<void> {
+    await this.run(
+      this.d1
+        .prepare("UPDATE subjects SET archived_at = ? WHERE id = ? AND user_id = ?")
+        .bind(archived ? Date.now() : null, id, this.userId),
+    );
+  }
+
+  /** Link an entry to subjects. One capture can touch a site, a panel and a device (§4). */
+  async linkEntrySubjects(entryId: string, subjectIds: string[]): Promise<void> {
+    if (!subjectIds.length) return;
+    const stmts = subjectIds.map((sid) =>
+      this.d1
+        .prepare(
+          `INSERT INTO entry_subjects (entry_id, subject_id, user_id) VALUES (?, ?, ?)
+           ON CONFLICT (entry_id, subject_id) DO NOTHING`,
+        )
+        .bind(entryId, sid, this.userId),
+    );
+    const res = await this.d1.batch(stmts);
+    res.forEach((r) => readMeta(this.meter, r.meta));
+  }
+
+  /** Which subjects a given entry touches — for the entry detail page. */
+  async entrySubjects(entryId: string): Promise<SubjectRow[]> {
+    return this.all<SubjectRow>(
+      this.d1
+        .prepare(
+          `SELECT s.id, s.name, s.type, s.context, s.visibility, s.hero_photo_id,
+                  s.created_at, s.archived_at
+             FROM subjects s
+             JOIN entry_subjects es ON es.subject_id = s.id
+            WHERE es.entry_id = ? AND s.user_id = ?
+            ORDER BY s.name COLLATE NOCASE`,
+        )
+        .bind(entryId, this.userId),
+    );
   }
 
   /**

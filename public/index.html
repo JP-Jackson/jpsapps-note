@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#16222E">
-<meta name="app-version" content="1.4.0">
+<meta name="app-version" content="1.5.0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Note">
@@ -276,6 +276,29 @@
   .actions{display:flex;gap:8px;margin-top:14px}
   .actions .btn{flex:1}
 
+  /* ---------- subjects ---------- */
+  #subject{position:fixed;inset:0;z-index:40;background:var(--bg);overflow-y:auto;padding:0 0 40px}
+  #subject .bar{background:var(--navy);color:#fff;display:flex;align-items:center;gap:12px;
+    padding:12px 16px;padding-top:calc(12px + env(safe-area-inset-top));position:sticky;top:0}
+  #subject .bar button{background:none;border:0;color:#fff;font:600 15px var(--font-ui);
+    cursor:pointer;padding:4px 0}
+  #subject .body{max-width:560px;margin:0 auto;padding:16px}
+  #subject img.photo{width:100%;border-radius:12px;border:1px solid var(--line);
+    margin-bottom:10px;display:block}
+  .subj{background:var(--card);border:1px solid var(--line);border-radius:10px;
+    padding:13px 14px;margin-bottom:8px;width:100%;text-align:left;cursor:pointer;
+    font:inherit;color:inherit;display:flex;align-items:center;gap:12px}
+  .subj .nm{flex:1;min-width:0;font-weight:600;font-size:16px;word-wrap:break-word}
+  .subj .kind{font:500 10px/1 var(--font-mono);letter-spacing:.08em;text-transform:uppercase;
+    color:var(--ink-2);white-space:nowrap}
+  /* Attribute rows are key/value pairs, not a fixed schema (§4). */
+  .attr{display:grid;grid-template-columns:1fr 1.4fr auto;gap:7px;margin-bottom:7px}
+  .attr input{border:1px solid var(--line);border-radius:8px;background:var(--card);
+    color:var(--ink);padding:10px;font:400 15px var(--font-ui);min-width:0}
+  .attr button{border:1px solid var(--line);background:var(--card);color:var(--ink-2);
+    border-radius:8px;width:40px;cursor:pointer;font-size:18px;line-height:1}
+  code{font:400 12px var(--font-mono);background:var(--card);padding:1px 5px;border-radius:4px}
+
   /* ---------- settings ---------- */
   #gear{background:none;border:0;color:rgba(255,255,255,.55);cursor:pointer;padding:4px;
     flex:none;display:flex;margin-left:2px}
@@ -453,6 +476,7 @@
       <button class="chip" data-ctx="vehicles" aria-pressed="false">Vehicles</button>
     </div>
 
+    <div class="chips" id="subjChips" hidden></div>
     <label class="row"><input type="checkbox" id="isOpen"> Needs follow-up</label>
     <button class="btn" id="save">Save</button>
 
@@ -476,6 +500,18 @@
     <div id="openList"><div class="empty">Loading…</div></div>
   </section>
 
+  <!-- ============ SUBJECTS ============ -->
+  <section id="view-subjects" hidden>
+    <button class="btn" id="addSubject" style="margin-bottom:14px">+ Add a thing</button>
+    <div id="subjectList"><div class="empty">Loading…</div></div>
+    <h2>Bulk add</h2>
+    <p class="empty" style="padding-top:0">Paste a list Claude structured for you — one per line as
+      <code>Name | type | context</code>, or JSON.</p>
+    <textarea id="importBox" placeholder="Compressor 2 | equipment | work&#10;F-150 | vehicle | vehicles&#10;Mower | equipment | home"></textarea>
+    <button class="btn ghost sm" id="importBtn">Import list</button>
+    <div id="importResult" class="empty"></div>
+  </section>
+
   <!-- ============ SEARCH ============ -->
   <section id="view-search" hidden>
     <input type="search" id="q" placeholder="Search notes…" autocomplete="off">
@@ -490,6 +526,14 @@
     <strong style="font-size:15px">Entry</strong>
   </div>
   <div class="body" id="detailBody"></div>
+</div>
+
+<div id="subject" hidden>
+  <div class="bar">
+    <button id="subjectBack">&lsaquo; Back</button>
+    <strong style="font-size:15px">Thing</strong>
+  </div>
+  <div class="body" id="subjectBody"></div>
 </div>
 
 <div id="settings" hidden>
@@ -550,6 +594,9 @@
   <button data-view="open">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
     Open<span class="badge" id="openBadge" hidden>0</span></button>
+  <button data-view="subjects">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg>
+    Things</button>
   <button data-view="search">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
     Search</button>
@@ -744,8 +791,42 @@ $("chips").addEventListener("click", (e) => {
   context = chip.dataset.ctx;
   localStorage.setItem(CTX_KEY, context);   // remembered, so the common case is 0 taps
   paintChips();
+  pickedSubjects.clear();                   // a subject belongs to its context
+  paintSubjectChips();
 });
 paintChips();
+
+/* ---- subject chips on the capture screen ----
+   Optional and zero-tap by default: §1 says capture speed decides whether the habit
+   survives, so naming the thing must never be a step you have to clear. Only
+   subjects in the current context are offered, because that is the set that could
+   plausibly apply. */
+let pickedSubjects = new Set();
+
+function paintSubjectChips() {
+  const box = $("subjChips");
+  if (!box) return;
+  const mine = subjects.filter((s) => s.context === context && !s.archived_at).slice(0, 6);
+  if (!mine.length) { box.hidden = true; return; }
+  box.hidden = false;
+  box.replaceChildren();
+  mine.forEach((s) => {
+    const b = document.createElement("button");
+    b.className = "chip";
+    b.dataset.pick = s.id;
+    b.textContent = s.name;
+    b.setAttribute("aria-pressed", String(pickedSubjects.has(s.id)));
+    box.append(b);
+  });
+}
+
+$("subjChips").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-pick]");
+  if (!b) return;
+  const id = b.dataset.pick;
+  if (pickedSubjects.has(id)) pickedSubjects.delete(id); else pickedSubjects.add(id);
+  b.setAttribute("aria-pressed", String(pickedSubjects.has(id)));
+});
 
 /* ------------------------------------------------------------------ location
    Every entry stores raw coordinates always (§4). Never block the save on it —
@@ -777,12 +858,15 @@ $("save").addEventListener("click", async () => {
     body: text || null,
     lat, lng,
     is_open: $("isOpen").checked,
+    subject_ids: [...pickedSubjects],
     photo: photoBlob || null,
   };
 
   await put(rec);                     // durable BEFORE any network attempt
   $("body").value = "";
   $("isOpen").checked = false;
+  pickedSubjects.clear();
+  paintSubjectChips();
   clearPhoto();
   $("save").disabled = false;
   renderRecent();
@@ -803,6 +887,7 @@ async function flush() {
         body: JSON.stringify({
           id: rec.id, created_at: rec.created_at, context: rec.context,
           body: rec.body, lat: rec.lat, lng: rec.lng, is_open: rec.is_open,
+          subject_ids: rec.subject_ids || [],
         }),
       });
       // 401/403 means the Access session lapsed. Keep the queue and reload into login;
@@ -1009,6 +1094,13 @@ function renderDetail(rejectedText) {
     ? '<div class="rawnote"><b>As originally dictated</b>' + esc(e.body_raw) + "</div>"
     : "";
 
+  const subj = (e.subjects || []).length
+    ? '<p class="thread">About</p>' + e.subjects.map((x) =>
+        '<button class="subj" data-subject-id="' + esc(x.id) + '">' +
+        '<span class="nm">' + esc(x.name) + "</span>" +
+        '<span class="kind">' + esc(x.type) + "</span></button>").join("")
+    : "";
+
   let thread = "";
   if (e.resolves)    thread += threadLink("Closes out", e.resolves);
   if (e.resolved_by) thread += threadLink("Closed out by", e.resolved_by);
@@ -1037,7 +1129,7 @@ function renderDetail(rejectedText) {
       (e.lat != null ? "<dt>where</dt><dd>" + e.lat.toFixed(5) + ", " + e.lng.toFixed(5) + "</dd>" : "") +
       "<dt>version</dt><dd>" + e.version + "</dd>" +
       "<dt>id</dt><dd>" + esc(e.id) + "</dd>" +
-    "</dl>" + thread;
+    "</dl>" + subj + thread;
 
   $("saveEdit").addEventListener("click", saveEdit);
   $("toggleOpen").addEventListener("click", toggleOpen);
@@ -1086,11 +1178,12 @@ let view = "capture";
 function refreshCurrentView() {
   if (view === "log") loadDay();
   else if (view === "open") loadOpen();
+  else if (view === "subjects") loadSubjects();
   else if (view === "capture") loadRecent();
 }
 function go(next) {
   view = next;
-  ["capture", "log", "open", "search"].forEach((s) => {
+  ["capture", "log", "open", "subjects", "search"].forEach((s) => {
     $("view-" + s).hidden = s !== next;
   });
   document.querySelectorAll("nav button").forEach((b) => {
@@ -1104,6 +1197,233 @@ function go(next) {
 document.querySelector("nav").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-view]");
   if (b) go(b.dataset.view);
+});
+
+/* ------------------------------------------------------------------ subjects
+   §4: subjects are "the things" — a truck, a compressor, the AC unit. Attributes
+   are key-value rather than a column per field, so a new kind of thing never needs
+   a migration; a template's only job is remembering what to ask. */
+let templates = null, subjects = [], currentSubject = null;
+
+async function loadTemplates() {
+  if (templates) return templates;
+  try {
+    const r = await fetch("/api/templates");
+    const all = (await r.json()).templates || [];
+    templates = all.reduce((acc, t) => {
+      (acc[t.type] = acc[t.type] || []).push(t);
+      return acc;
+    }, {});
+  } catch { templates = {}; }
+  return templates;
+}
+
+async function loadSubjects() {
+  try {
+    const r = await fetch("/api/subjects");
+    subjects = (await r.json()).subjects || [];
+  } catch {
+    $("subjectList").innerHTML = '<div class="empty">Offline — things need a connection.</div>';
+    return;
+  }
+  const node = $("subjectList");
+  node.replaceChildren();
+  if (!subjects.length) {
+    node.innerHTML = '<div class="empty">Nothing yet. Add a truck, a compressor, the AC unit…</div>';
+    return;
+  }
+  subjects.forEach((s) => {
+    const b = document.createElement("button");
+    b.className = "subj";
+    b.dataset.subjectId = s.id;
+    b.innerHTML = '<span class="nm">' + esc(s.name) + "</span>" +
+      '<span class="kind">' + esc(s.type) + " · " + esc(s.context) + "</span>";
+    node.append(b);
+  });
+  paintSubjectChips();
+}
+
+document.addEventListener("click", (e) => {
+  const row = e.target.closest("[data-subject-id]");
+  if (row) openSubject(row.dataset.subjectId);
+});
+$("subjectBack").addEventListener("click", () => {
+  $("subject").hidden = true;
+  currentSubject = null;
+  if (view === "subjects") loadSubjects();
+});
+
+async function openSubject(id) {
+  $("subject").hidden = false;
+  $("subjectBody").innerHTML = '<div class="empty">Loading…</div>';
+  await loadTemplates();
+  try {
+    const r = await fetch("/api/subjects/" + encodeURIComponent(id));
+    if (!r.ok) throw new Error();
+    currentSubject = await r.json();
+    renderSubject();
+  } catch {
+    $("subjectBody").innerHTML = '<div class="empty">Could not load that.</div>';
+  }
+}
+
+function attrRow(key, value) {
+  return '<div class="attr">' +
+    '<input class="k" value="' + esc(key || "") + '" placeholder="Field">' +
+    '<input class="v" value="' + esc(value == null ? "" : value) + '" placeholder="Value">' +
+    '<button class="rm" title="Remove">&times;</button></div>';
+}
+
+function renderSubject() {
+  const s = currentSubject;
+  const photos = (s.photos || [])
+    .map((p) => '<img class="photo" src="' + esc(p.url) + '" alt="" onerror="this.remove()">').join("");
+
+  // Start from the template so the fields worth filling in are already listed,
+  // then overlay whatever has actually been saved.
+  const tpl = (templates && templates[s.type]) || [];
+  const saved = new Map(s.attributes.map((a) => [a.key, a.value]));
+  const keys = [...tpl.map((t) => t.label), ...s.attributes.map((a) => a.key)]
+    .filter((k, i, arr) => arr.indexOf(k) === i);
+  const rows = keys.map((k) => attrRow(k, saved.get(k))).join("");
+
+  const history = s.entries.length
+    ? s.entries.map((e) =>
+        '<button class="entry' + (e.is_open ? " open" : "") + '" data-id="' + esc(e.id) + '">' +
+        '<span class="when">' + esc(fmtFull(e.created_at)) + "</span>" +
+        '<span class="what">' + esc(e.body || "(photo)") + "</span></button>").join("")
+    : '<div class="empty">Nothing logged against this yet.</div>';
+
+  $("subjectBody").innerHTML =
+    photos +
+    '<input id="subjName" value="' + esc(s.name) + '" style="width:100%;border:1px solid var(--line);' +
+      'border-radius:10px;background:var(--card);color:var(--ink);padding:12px;' +
+      'font:700 19px var(--font-ui);margin-bottom:10px">' +
+    '<div class="chips" id="subjCtx">' +
+      ["work", "home", "vehicles"].map((c) =>
+        '<button class="chip" data-subj-ctx="' + c + '" aria-pressed="' + (s.context === c) + '">' +
+        c[0].toUpperCase() + c.slice(1) + "</button>").join("") +
+    "</div>" +
+    "<h2>Details</h2><div id=\"attrs\">" + rows + "</div>" +
+    '<button class="btn ghost sm" id="addAttr" style="margin-bottom:12px">+ Add field</button>' +
+    '<div class="actions">' +
+      '<button class="btn sm" id="saveSubject">Save</button>' +
+      '<button class="btn sm ghost" id="archiveSubject">' +
+        (s.archived_at ? "Unarchive" : "Archive") + "</button>" +
+    "</div>" +
+    "<h2>History</h2>" + history;
+
+  $("addAttr").addEventListener("click", () => {
+    $("attrs").insertAdjacentHTML("beforeend", attrRow("", ""));
+  });
+  $("attrs").addEventListener("click", (e) => {
+    const rm = e.target.closest(".rm");
+    if (rm) rm.closest(".attr").remove();
+  });
+  $("subjCtx").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-subj-ctx]");
+    if (!b) return;
+    currentSubject.context = b.dataset.subjCtx;
+    document.querySelectorAll("[data-subj-ctx]").forEach((x) =>
+      x.setAttribute("aria-pressed", String(x.dataset.subjCtx === currentSubject.context)));
+  });
+  $("saveSubject").addEventListener("click", saveSubject);
+  $("archiveSubject").addEventListener("click", async () => {
+    await fetch("/api/subjects/" + encodeURIComponent(s.id), {
+      method: "PATCH", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ archived: !s.archived_at }),
+    });
+    $("subject").hidden = true;
+    loadSubjects();
+  });
+}
+
+async function saveSubject() {
+  const attributes = [...document.querySelectorAll("#attrs .attr")]
+    .map((row, i) => ({
+      key: row.querySelector(".k").value.trim(),
+      value: row.querySelector(".v").value.trim() || null,
+      sort_order: i,
+    }))
+    // An empty field with no value is a row the user never filled in, not a deletion.
+    .filter((a) => a.key);
+  try {
+    const r = await fetch("/api/subjects/" + encodeURIComponent(currentSubject.id), {
+      method: "PATCH", headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: $("subjName").value.trim() || currentSubject.name,
+        context: currentSubject.context,
+        attributes,
+      }),
+    });
+    if (!r.ok) throw new Error();
+    currentSubject = await r.json();
+    currentSubject.photos = currentSubject.photos || [];
+    renderSubject();
+    loadSubjects();
+  } catch { err("Could not save that."); }
+}
+
+/* ---- adding one ---- */
+$("addSubject").addEventListener("click", async () => {
+  await loadTemplates();
+  const name = prompt("What is it called?");
+  if (!name || !name.trim()) return;
+  const type = (prompt("Type: generic, vehicle or equipment", "generic") || "generic").toLowerCase();
+  const ctx = (prompt("Context: work, home or vehicles", context) || context).toLowerCase();
+  try {
+    const r = await fetch("/api/subjects", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: name.trim(), type, context: ctx }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "failed");
+    await loadSubjects();
+    openSubject(d.id);
+  } catch (e) { err("Could not add that: " + e.message); }
+});
+
+/* ---- bulk import (§11 phase 4) ----
+   Day one means typing in a shop full of equipment, which is the chore that stops a
+   tool being adopted. Accepts either JSON or one-per-line "Name | type | context",
+   because what Claude hands back depends on how it was asked. */
+function parseImport(text) {
+  const trimmed = text.trim();
+  if (!trimmed) return [];
+  if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
+    const parsed = JSON.parse(trimmed);
+    return Array.isArray(parsed) ? parsed : parsed.subjects || [];
+  }
+  return trimmed.split("\n").map((line) => {
+    const [name, type, ctx] = line.split("|").map((x) => (x || "").trim());
+    return { name, type: type || "generic", context: ctx || "work" };
+  }).filter((x) => x.name);
+}
+
+$("importBtn").addEventListener("click", async () => {
+  const box = $("importBox");
+  let list;
+  try {
+    list = parseImport(box.value);
+  } catch {
+    $("importResult").textContent = "That is not valid JSON — or use Name | type | context per line.";
+    return;
+  }
+  if (!list.length) { $("importResult").textContent = "Nothing to import."; return; }
+  $("importResult").textContent = "Importing " + list.length + "…";
+  try {
+    const r = await fetch("/api/subjects/import", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ subjects: list }),
+    });
+    const d = await r.json();
+    $("importResult").textContent =
+      "Added " + (d.created || 0) +
+      (d.failed && d.failed.length
+        ? " · " + d.failed.length + " skipped (row " + d.failed.map((f) => f.row + 1).join(", ") + ")"
+        : "");
+    if (d.created) { box.value = ""; loadSubjects(); }
+  } catch { $("importResult").textContent = "Import failed."; }
 });
 
 /* ------------------------------------------------------------------ settings
@@ -1221,6 +1541,7 @@ setInterval(() => { if (navigator.onLine) flush(); }, 30000);
   checkVersion();
   loadRecent();
   loadOpenCount();
+  loadSubjects();          // also paints the capture screen's subject chips
   flush();
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/sw.js").catch(() => {});
