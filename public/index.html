@@ -39,10 +39,21 @@
     overscroll-behavior-y:contain}
 
   /* ---------- chrome ---------- */
-  header{background:var(--navy);color:#fff;padding:12px 16px;
-    padding-top:calc(12px + env(safe-area-inset-top));
-    display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:20}
-  header .name{font-weight:700;letter-spacing:.06em;font-size:15px}
+  header{background:var(--navy);color:#fff;padding:10px 14px;
+    padding-top:calc(10px + env(safe-area-inset-top));
+    display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:20}
+  header .mark{flex:none;display:flex;color:#fff}
+  header .mark svg{width:30px;height:30px}
+  header .who{display:flex;flex-direction:column;gap:3px;min-width:0}
+  header .name{font-weight:700;letter-spacing:.07em;font-size:15px;line-height:1;
+    display:flex;align-items:baseline;gap:7px}
+  /* The build, next to the name — the first thing to check when something looks wrong. */
+  #ver{font:400 10px/1 "IBM Plex Mono",ui-monospace,monospace;letter-spacing:.04em;
+    color:rgba(255,255,255,.45);white-space:nowrap}
+  #ver.stale{color:var(--warn)}
+  /* Present but recessive: says which app this is without competing with it. */
+  header .host{font:400 10px/1 "IBM Plex Mono",ui-monospace,monospace;
+    letter-spacing:.06em;color:rgba(255,255,255,.24)}
   /* Status is a dot PLUS small text, always visible (§6). The word does the work. */
   #status{margin-left:auto;display:flex;align-items:center;gap:7px;
     font:500 11px/1 "IBM Plex Mono",ui-monospace,monospace;letter-spacing:.08em;
@@ -167,9 +178,71 @@
   .actions{display:flex;gap:8px;margin-top:14px}
   .actions .btn{flex:1}
 
+  /* ---------- splash (§10: note-splash-final.html, 4.21s) ----------
+     Plays on cold start only; a sessionStorage flag skips it on reload. Any touch
+     ends it immediately — §1 makes capture speed the deciding property, and a cold
+     start is exactly the pull-the-phone-out moment, so the animation must never be
+     something you have to sit through. */
+  #splash{position:fixed;inset:0;z-index:9999;
+    --tile:#16222E; --accent:#2C7BC4; --halo:#7CC0F5;
+    --glow:rgba(150,205,250,1); --glow-0:rgba(150,205,250,0); --wash:#CFE6FA;
+    background:var(--tile);display:flex;flex-direction:column;align-items:center;
+    justify-content:center;gap:22px}
+  #splash.done{display:none}
+  #wash{position:absolute;inset:0;background:var(--wash);opacity:0;pointer-events:none}
+  #splash svg{width:112px;height:112px;overflow:visible}
+  #splash .tile{fill:var(--tile);opacity:0}
+  #splash .mk path{fill:none;stroke:#fff;stroke-linecap:butt;stroke-linejoin:miter;
+    stroke-dasharray:var(--len,300);stroke-dashoffset:var(--len,300)}
+  #splash .kl{fill:none;stroke:var(--accent);stroke-width:4;
+    stroke-dasharray:var(--kl,400);stroke-dashoffset:var(--kl,400)}
+  #splash .flash{fill:none;stroke:#fff;stroke-width:4;opacity:0}
+  #splash .halo,#splash .spark{fill:none;stroke-linecap:round;
+    stroke-dasharray:26 var(--kl,400);stroke-dashoffset:26px}
+  #splash .halo{stroke:var(--halo);stroke-width:12;filter:blur(6px)}
+  #splash .spark{stroke:#fff;stroke-width:5;filter:drop-shadow(0 0 7px var(--halo))}
+  #splash .word{text-align:center}
+  #splash .word .n{font-size:27px;font-weight:700;letter-spacing:-.02em;color:#fff;
+    line-height:1;opacity:0;transform:translateY(9px)}
+  #splash .word .d{font-family:"IBM Plex Mono",monospace;font-size:9.5px;font-weight:600;
+    letter-spacing:.22em;color:rgba(255,255,255,.5);margin-top:9px;opacity:0}
+
+  .go .tile{animation:fade .21s ease-out 0s forwards}
+  .go .bar{animation:draw .36s cubic-bezier(.45,0,.25,1) .20s forwards}
+  .go .stem{animation:draw .35s cubic-bezier(.45,0,.25,1) .39s forwards}
+  .go .kl{animation:draw .50s cubic-bezier(.7,0,.84,0) .74s forwards}
+  .go .halo,.go .spark{animation:chase .50s cubic-bezier(.7,0,.84,0) .74s forwards}
+  .go .flash{animation:bloom 1.70s linear 1.24s forwards}
+  .go .mk{animation:breath 1.70s linear 1.27s forwards;transform-origin:60px 60px}
+  .go #wash{animation:wash 1.30s linear 1.30s forwards}
+  .go .word .n{animation:rise .76s cubic-bezier(.25,0,.15,1) 2.05s forwards}
+  .go .word .d{animation:fade .60s ease-out 2.75s forwards}
+  .go{animation:clear .36s ease-in 3.85s forwards}
+
+  @keyframes fade{to{opacity:1}}
+  @keyframes draw{to{stroke-dashoffset:0}}
+  @keyframes chase{to{stroke-dashoffset:calc(0px - var(--kl,400) * 1px)}}
+  @keyframes rise{to{opacity:1;transform:translateY(0)}}
+  @keyframes bloom{
+    0%{opacity:0;stroke-width:4;filter:drop-shadow(0 0 0 var(--glow-0))}
+    34%{opacity:1;stroke-width:8;filter:drop-shadow(0 0 30px var(--glow))}
+    100%{opacity:0;stroke-width:4;filter:drop-shadow(0 0 0 var(--glow-0))}}
+  @keyframes breath{
+    0%{filter:drop-shadow(0 0 0 var(--glow-0));transform:scale(1)}
+    28%{filter:drop-shadow(0 0 26px var(--glow));transform:scale(1.035)}
+    100%{filter:drop-shadow(0 0 0 var(--glow-0));transform:scale(1)}}
+  @keyframes wash{0%{opacity:0}34%{opacity:.13}100%{opacity:0}}
+  @keyframes clear{to{opacity:0;visibility:hidden}}
+
+  @media (prefers-reduced-motion:reduce){
+    .go *{animation:none!important}
+    #splash .tile,#splash .word .n,#splash .word .d{opacity:1!important;transform:none!important}
+    #splash .mk path,#splash .kl{stroke-dashoffset:0!important}
+    #splash .halo,#splash .spark,#splash .flash,#wash{opacity:0!important}
+    .go{animation:clear .3s linear 1s forwards!important}
+  }
+
   /* ---------- version ---------- */
-  #ver{text-align:center;color:var(--ink-2);margin:26px 0 0;
-    font:400 11px/1.6 "IBM Plex Mono",monospace;letter-spacing:.06em}
   #stale{background:var(--blue);color:#fff;border:0;border-radius:10px;
     padding:12px 14px;width:100%;margin-bottom:12px;cursor:pointer;
     font:600 14px Archivo,sans-serif;display:none}
@@ -177,8 +250,36 @@
 </style>
 </head>
 <body>
+<div id="splash" data-app="note">
+  <div id="wash"></div>
+  <svg viewBox="0 0 120 120" aria-hidden="true">
+    <rect class="tile" width="120" height="120" rx="26"/>
+    <path class="kl"    d="M27 7 H93 A20 20 0 0 1 113 27 V93 A20 20 0 0 1 93 113 H27 A20 20 0 0 1 7 93 V27 A20 20 0 0 1 27 7 Z"/>
+    <path class="flash" d="M27 7 H93 A20 20 0 0 1 113 27 V93 A20 20 0 0 1 93 113 H27 A20 20 0 0 1 7 93 V27 A20 20 0 0 1 27 7 Z"/>
+    <path class="halo"  d="M27 7 H93 A20 20 0 0 1 113 27 V93 A20 20 0 0 1 93 113 H27 A20 20 0 0 1 7 93 V27 A20 20 0 0 1 27 7 Z"/>
+    <path class="spark" d="M27 7 H93 A20 20 0 0 1 113 27 V93 A20 20 0 0 1 93 113 H27 A20 20 0 0 1 7 93 V27 A20 20 0 0 1 27 7 Z"/>
+    <g class="mk"><g transform="translate(60,60) scale(0.9) translate(-57,-62)">
+      <path class="bar"  d="M18 24 H70 C91 24 95 32 95 44 C95 56 91 63 70 63 H56" stroke-width="12"/>
+      <path class="stem" d="M56 24 V80 C56 92 47 98 38 98 C28 98 23 91 22 83" stroke-width="17"/>
+    </g></g>
+  </svg>
+  <div class="word"><div class="n">Note</div><div class="d">JPSAPPS.COM</div></div>
+</div>
+
 <header>
-  <span class="name">NOTE</span>
+  <span class="mark" aria-hidden="true">
+    <svg viewBox="0 0 120 120" role="img" aria-label="JP">
+      <g transform="translate(60,60) scale(0.9) translate(-57,-62)" fill="none"
+         stroke="currentColor" stroke-linecap="butt" stroke-linejoin="miter">
+        <path d="M18 24 H70 C91 24 95 32 95 44 C95 56 91 63 70 63 H56" stroke-width="12"/>
+        <path d="M56 24 V80 C56 92 47 98 38 98 C28 98 23 91 22 83" stroke-width="17"/>
+      </g>
+    </svg>
+  </span>
+  <span class="who">
+    <span class="name">NOTE<span id="ver">—</span></span>
+    <span class="host">jpsapps.com</span>
+  </span>
   <span id="status"><span id="dot"></span><span id="statusText">SYNCED</span></span>
 </header>
 
@@ -217,7 +318,6 @@
 
     <h2>Just captured</h2>
     <div id="log"><div class="empty">Nothing yet.</div></div>
-    <p id="ver">—</p>
   </section>
 
   <!-- ============ DAY LOG ============ -->
@@ -292,13 +392,38 @@ const PAGE_VERSION =
 
 async function checkVersion() {
   $("ver").textContent = "v" + PAGE_VERSION;
+  $("ver").classList.remove("stale");
   try {
-    const h = await (await fetch("/api/health")).json();
+    const h = await (await fetch("/api/health", { cache: "no-store" })).json();
     if (!h.version || h.version === PAGE_VERSION) return;
-    $("ver").textContent = "v" + PAGE_VERSION + " · server v" + h.version;
+    // Header is narrow: "v1.1.0 → v1.2.0" says everything the banner elaborates on.
+    $("ver").textContent = "v" + PAGE_VERSION + " \u2192 v" + h.version;
+    $("ver").classList.add("stale");
     $("stale").classList.add("on");
   } catch { /* offline: the page's own version is all we can honestly claim */ }
 }
+
+/**
+ * Notice a deploy without being restarted.
+ *
+ * The service worker is network-first for the shell, so simply reopening the app
+ * picks up a new release. What that misses is an app left open on the bench for
+ * hours: it would keep running an old build with nothing to say so. Re-checking when
+ * it comes back to the foreground closes that, and asking the browser to re-fetch
+ * sw.js means the next load is already the new one.
+ */
+async function refreshServiceWorker() {
+  try {
+    const reg = await navigator.serviceWorker?.getRegistration?.();
+    await reg?.update();
+  } catch {}
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) return;
+  checkVersion();
+  refreshServiceWorker();
+});
+setInterval(() => { if (!document.hidden) checkVersion(); }, 15 * 60 * 1000);
 
 $("stale").addEventListener("click", async () => {
   // Drop the cached shell first, or the service worker just serves the old one again.
@@ -792,6 +917,32 @@ document.querySelector("nav").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-view]");
   if (b) go(b.dataset.view);
 });
+
+/* ------------------------------------------------------------------ splash
+   §10: plays on cold start only, skipped on reload by a sessionStorage flag. The app
+   boots underneath it, so the animation costs nothing — by the time it clears the
+   first entries are already loaded. Any touch ends it early, because §1 makes capture
+   speed the property everything else is checked against. */
+(function splash() {
+  const el = $("splash");
+  if (!el) return;
+
+  let seen = false;
+  try { seen = sessionStorage.getItem("note.splash") === "1"; } catch {}
+  if (seen) { el.remove(); return; }
+  try { sessionStorage.setItem("note.splash", "1"); } catch {}
+
+  // Dash lengths must be measured, not guessed — they drive every draw animation.
+  el.querySelectorAll(".mk path").forEach((path) =>
+    path.style.setProperty("--len", Math.ceil(path.getTotalLength())));
+  el.style.setProperty("--kl", Math.ceil(el.querySelector(".kl").getTotalLength()));
+
+  const done = () => { el.classList.add("done"); el.remove(); };
+  const timer = setTimeout(done, 4330);        // 3.85s + 0.36s clear, plus slack
+  el.addEventListener("pointerdown", () => { clearTimeout(timer); done(); }, { once: true });
+
+  requestAnimationFrame(() => el.classList.add("go"));
+})();
 
 /* ------------------------------------------------------------------ boot */
 addEventListener("online",  () => { paintStatus(); flush(); });
