@@ -4,10 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#16222E">
+<meta name="app-version" content="1.1.0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Note">
 <link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon-192.png">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <title>Note</title>
 <style>
@@ -17,7 +19,7 @@
     --navy:#16222E; --blue:#2C7BC4; --blue-deep:#1B5486;
     --bg:#E6E9EC; --card:#FFF; --ink:#121A22; --ink-2:#586573; --line:#D2D8DE;
     --ok:#1f7a4d; --warn:#D9931A; --bad:#D9483C;
-    --press:4px;
+    --press:4px; --nav-h:60px;
   }
   @media (prefers-color-scheme:dark){
     :root{
@@ -27,11 +29,14 @@
     }
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  /* Must outrank the display rules below (.shot video, .btn) — a class+element
+     selector beats the UA stylesheet's [hidden], so without this the hidden
+     attribute silently does nothing and the viewfinder never gives way to the shot. */
+  [hidden]{display:none!important}
   html,body{height:100%}
   body{margin:0;background:var(--bg);color:var(--ink);
     font:400 16px/1.5 Archivo,system-ui,-apple-system,"Segoe UI",sans-serif;
     overscroll-behavior-y:contain}
-  .mono{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
 
   /* ---------- chrome ---------- */
   header{background:var(--navy);color:#fff;padding:12px 16px;
@@ -48,7 +53,7 @@
   #status.error #dot{background:var(--bad)}
   @keyframes pulse{50%{opacity:.25}}
 
-  main{max-width:560px;margin:0 auto;padding:16px 16px 40px}
+  main{max-width:560px;margin:0 auto;padding:16px 16px calc(var(--nav-h) + 40px)}
 
   /* ---------- toolbox buttons: hard 4px shadow, visibly depress (§10) ---------- */
   .btn{display:block;width:100%;border:0;border-radius:12px;
@@ -61,6 +66,7 @@
   .btn.ghost{background:var(--card);color:var(--ink);
     box-shadow:0 var(--press) 0 var(--line);border:1px solid var(--line)}
   .btn.ghost:active{box-shadow:0 0 0 var(--line)}
+  .btn.sm{padding:13px 14px;font-size:15px}
 
   /* ---------- capture ---------- */
   .shot{position:relative;width:100%;aspect-ratio:4/3;border-radius:12px;overflow:hidden;
@@ -78,6 +84,10 @@
     border:1px solid var(--line);background:var(--card);color:var(--ink);
     padding:14px;font:400 17px/1.45 Archivo,system-ui,sans-serif;margin-bottom:12px}
   textarea:focus{outline:2px solid var(--blue);outline-offset:-1px}
+  input[type=search]{width:100%;border-radius:12px;border:1px solid var(--line);
+    background:var(--card);color:var(--ink);padding:15px 14px;
+    font:400 17px Archivo,system-ui,sans-serif;margin-bottom:12px}
+  input[type=search]:focus{outline:2px solid var(--blue);outline-offset:-1px}
 
   .chips{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
   .chip{flex:1 1 0;min-width:88px;padding:14px 10px;border-radius:10px;
@@ -92,21 +102,78 @@
     color:var(--ink-2);font-size:14px}
   .row input{width:22px;height:22px;accent-color:var(--blue)}
 
-  /* ---------- log ---------- */
+  /* ---------- lists ---------- */
   h2{font:600 12px/1 "IBM Plex Mono",monospace;letter-spacing:.1em;
-    text-transform:uppercase;color:var(--ink-2);margin:28px 0 10px}
+    text-transform:uppercase;color:var(--ink-2);margin:22px 0 10px}
   .entry{background:var(--card);border:1px solid var(--line);border-radius:10px;
-    padding:12px 14px;margin-bottom:8px;display:flex;gap:12px;align-items:flex-start}
+    padding:12px 14px;margin-bottom:8px;display:flex;gap:12px;align-items:flex-start;
+    width:100%;text-align:left;cursor:pointer;font:inherit;color:inherit}
   .entry .when{font:500 11px/1.5 "IBM Plex Mono",monospace;color:var(--ink-2);
     white-space:nowrap;padding-top:2px}
   .entry .what{flex:1;min-width:0;word-wrap:break-word}
   .entry .tag{font:500 10px/1 "IBM Plex Mono",monospace;letter-spacing:.08em;
-    text-transform:uppercase;color:var(--ink-2);display:block;margin-top:4px}
-  .entry.pending{border-style:dashed;opacity:.75}
-  .empty{color:var(--ink-2);font-size:14px;padding:4px 2px}
+    text-transform:uppercase;color:var(--ink-2);display:block;margin-top:5px}
+  .entry.pending{border-style:dashed;opacity:.75;cursor:default}
+  .entry.open{border-left:4px solid var(--warn)}
+  .empty{color:var(--ink-2);font-size:14px;padding:6px 2px}
   .err{background:#d9483c1a;border:1px solid var(--bad);color:var(--bad);
     border-radius:10px;padding:10px 12px;font-size:14px;margin-bottom:12px;display:none}
   .err.on{display:block}
+
+  /* ---------- day stepper ---------- */
+  .stepper{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+  .stepper button{width:52px;height:48px;border-radius:10px;border:1px solid var(--line);
+    background:var(--card);color:var(--ink);font:700 20px/1 Archivo,sans-serif;cursor:pointer}
+  .stepper button[disabled]{opacity:.35;pointer-events:none}
+  .stepper .label{flex:1;text-align:center;font:600 15px Archivo,sans-serif}
+
+  /* ---------- bottom nav ---------- */
+  nav{position:fixed;left:0;right:0;bottom:0;z-index:30;display:flex;
+    background:var(--navy);border-top:1px solid #0006;
+    padding-bottom:env(safe-area-inset-bottom)}
+  nav button{flex:1;height:var(--nav-h);border:0;background:none;color:#8fa3b5;
+    font:600 11px/1.3 "IBM Plex Mono",monospace;letter-spacing:.06em;
+    text-transform:uppercase;cursor:pointer;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:5px;position:relative}
+  nav button svg{width:21px;height:21px}
+  nav button[aria-current="true"]{color:#fff}
+  nav button[aria-current="true"] svg{stroke:var(--blue)}
+  .badge{position:absolute;top:8px;left:calc(50% + 6px);background:var(--warn);
+    color:#16222E;border-radius:99px;min-width:18px;padding:0 5px;
+    font:700 10px/18px "IBM Plex Mono",monospace;text-align:center}
+
+  /* ---------- detail ---------- */
+  #detail{position:fixed;inset:0;z-index:40;background:var(--bg);overflow-y:auto;
+    padding:0 0 40px}
+  #detail .bar{background:var(--navy);color:#fff;display:flex;align-items:center;gap:12px;
+    padding:12px 16px;padding-top:calc(12px + env(safe-area-inset-top));
+    position:sticky;top:0}
+  #detail .bar button{background:none;border:0;color:#fff;font:600 15px Archivo,sans-serif;
+    cursor:pointer;padding:4px 0}
+  #detail .body{max-width:560px;margin:0 auto;padding:16px}
+  #detail img.photo{width:100%;border-radius:12px;border:1px solid var(--line);
+    margin-bottom:10px;display:block}
+  .meta{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:14px 0}
+  .meta dt{font:500 11px/1.6 "IBM Plex Mono",monospace;text-transform:uppercase;
+    color:var(--ink-2)}
+  .meta dd{margin:0;font:400 13px/1.6 "IBM Plex Mono",monospace;word-break:break-word}
+  .rawnote{background:var(--card);border:1px solid var(--line);
+    border-left:4px solid var(--ink-2);border-radius:8px;padding:10px 12px;margin:12px 0;
+    font-size:14px;color:var(--ink-2)}
+  .rawnote b{display:block;font:600 10px/1.6 "IBM Plex Mono",monospace;
+    letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px}
+  .thread{font-size:13px;color:var(--ink-2);margin:16px 0 4px;
+    font-family:"IBM Plex Mono",monospace;text-transform:uppercase;letter-spacing:.08em}
+  .actions{display:flex;gap:8px;margin-top:14px}
+  .actions .btn{flex:1}
+
+  /* ---------- version ---------- */
+  #ver{text-align:center;color:var(--ink-2);margin:26px 0 0;
+    font:400 11px/1.6 "IBM Plex Mono",monospace;letter-spacing:.06em}
+  #stale{background:var(--blue);color:#fff;border:0;border-radius:10px;
+    padding:12px 14px;width:100%;margin-bottom:12px;cursor:pointer;
+    font:600 14px Archivo,sans-serif;display:none}
+  #stale.on{display:block}
 </style>
 </head>
 <body>
@@ -116,39 +183,89 @@
 </header>
 
 <main>
+  <button id="stale">A newer version is available — tap to reload</button>
   <div class="err" id="err"></div>
 
-  <div class="shot" id="shot">
-    <video id="video" playsinline muted></video>
-    <img id="preview" alt="" hidden>
-    <button class="shutter" id="shutter" aria-label="Take photo"></button>
-    <button class="retake" id="retake" hidden>Retake</button>
-  </div>
+  <!-- ============ CAPTURE ============ -->
+  <section id="view-capture">
+    <div class="shot" id="shot">
+      <video id="video" playsinline muted></video>
+      <img id="preview" alt="" hidden>
+      <button class="shutter" id="shutter" aria-label="Take photo"></button>
+      <button class="retake" id="retake" hidden>Retake</button>
+    </div>
 
-  <button class="btn ghost" id="camBtn" style="margin-bottom:12px">
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-         stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-         style="vertical-align:-4px;margin-right:8px">
-      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
-      <circle cx="12" cy="13" r="4"/>
-    </svg>Add photo</button>
-  <input type="file" id="filePick" accept="image/*" capture="environment" hidden>
+    <button class="btn ghost" id="camBtn" style="margin-bottom:12px">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+           style="vertical-align:-4px;margin-right:8px">
+        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+        <circle cx="12" cy="13" r="4"/>
+      </svg>Add photo</button>
+    <input type="file" id="filePick" accept="image/*" capture="environment" hidden>
 
-  <textarea id="body" placeholder="What happened? (tap the mic on your keyboard to dictate)"></textarea>
+    <textarea id="body" placeholder="What happened? (tap the mic on your keyboard to dictate)"></textarea>
 
-  <div class="chips" id="chips">
-    <button class="chip" data-ctx="work"     aria-pressed="true">Work</button>
-    <button class="chip" data-ctx="home"     aria-pressed="false">Home</button>
-    <button class="chip" data-ctx="vehicles" aria-pressed="false">Vehicles</button>
-  </div>
+    <div class="chips" id="chips">
+      <button class="chip" data-ctx="work"     aria-pressed="true">Work</button>
+      <button class="chip" data-ctx="home"     aria-pressed="false">Home</button>
+      <button class="chip" data-ctx="vehicles" aria-pressed="false">Vehicles</button>
+    </div>
 
-  <label class="row"><input type="checkbox" id="isOpen"> Needs follow-up</label>
+    <label class="row"><input type="checkbox" id="isOpen"> Needs follow-up</label>
+    <button class="btn" id="save">Save</button>
 
-  <button class="btn" id="save">Save</button>
+    <h2>Just captured</h2>
+    <div id="log"><div class="empty">Nothing yet.</div></div>
+    <p id="ver">—</p>
+  </section>
 
-  <h2>Recent</h2>
-  <div id="log"><div class="empty">Nothing yet.</div></div>
+  <!-- ============ DAY LOG ============ -->
+  <section id="view-log" hidden>
+    <div class="stepper">
+      <button id="dayPrev" aria-label="Previous day">&lsaquo;</button>
+      <span class="label" id="dayLabel">Today</span>
+      <button id="dayNext" aria-label="Next day">&rsaquo;</button>
+    </div>
+    <div id="dayList"><div class="empty">Loading…</div></div>
+  </section>
+
+  <!-- ============ OPEN ITEMS ============ -->
+  <section id="view-open" hidden>
+    <h2>Open follow-ups — oldest first</h2>
+    <div id="openList"><div class="empty">Loading…</div></div>
+  </section>
+
+  <!-- ============ SEARCH ============ -->
+  <section id="view-search" hidden>
+    <input type="search" id="q" placeholder="Search notes…" autocomplete="off">
+    <div id="searchList"><div class="empty">Type at least 2 characters.</div></div>
+  </section>
 </main>
+
+<!-- ============ ENTRY DETAIL ============ -->
+<div id="detail" hidden>
+  <div class="bar">
+    <button id="detailBack">&lsaquo; Back</button>
+    <strong style="font-size:15px">Entry</strong>
+  </div>
+  <div class="body" id="detailBody"></div>
+</div>
+
+<nav>
+  <button data-view="capture" aria-current="true">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>
+    Capture</button>
+  <button data-view="log">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16M4 12h16M4 19h10"/></svg>
+    Log</button>
+  <button data-view="open">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+    Open<span class="badge" id="openBadge" hidden>0</span></button>
+  <button data-view="search">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+    Search</button>
+</nav>
 
 <script>
 /* ------------------------------------------------------------------ constants */
@@ -158,6 +275,42 @@ const QUALITY  = 0.8;       // size, and nameplates and part numbers stay readab
 
 const $ = (id) => document.getElementById(id);
 const err = (msg) => { $("err").textContent = msg; $("err").classList.toggle("on", !!msg); };
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmtTime = (ms) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const fmtFull = (ms) => new Date(ms).toLocaleString([], {
+  weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+
+/* ------------------------------------------------------------------ version
+   The page carries its own version, stamped at build time by scripts/sync-version.mjs.
+   Comparing it against the Worker's catches the one case that matters: the service
+   worker served a cached shell from an older release, so what you are looking at is
+   not what is deployed. Showing only the server's number would report "current" for a
+   page that is not. */
+const PAGE_VERSION =
+  document.querySelector('meta[name="app-version"]')?.content || "unknown";
+
+async function checkVersion() {
+  $("ver").textContent = "v" + PAGE_VERSION;
+  try {
+    const h = await (await fetch("/api/health")).json();
+    if (!h.version || h.version === PAGE_VERSION) return;
+    $("ver").textContent = "v" + PAGE_VERSION + " · server v" + h.version;
+    $("stale").classList.add("on");
+  } catch { /* offline: the page's own version is all we can honestly claim */ }
+}
+
+$("stale").addEventListener("click", async () => {
+  // Drop the cached shell first, or the service worker just serves the old one again.
+  try {
+    if ("caches" in window) {
+      for (const k of await caches.keys()) await caches.delete(k);
+    }
+    const regs = (await navigator.serviceWorker?.getRegistrations?.()) || [];
+    await Promise.all(regs.map((r) => r.unregister()));
+  } catch {}
+  location.reload();
+});
 
 /* ------------------------------------------------------------------ IndexedDB
    The queue is the whole offline story (§6). An entry is written here BEFORE any
@@ -205,7 +358,7 @@ async function openCamera() {
     $("shutter").hidden = false;
     $("retake").hidden = true;
     $("camBtn").hidden = true;
-  } catch (e) {
+  } catch {
     // Permission denied, no camera, or an insecure context. Fall back rather than
     // dead-end: a capture tool that refuses to capture is worthless.
     $("filePick").click();
@@ -287,11 +440,10 @@ paintChips();
 function coords() {
   return new Promise((res) => {
     if (!navigator.geolocation) return res({ lat: null, lng: null });
-    const done = (v) => res(v);
-    const t = setTimeout(() => done({ lat: null, lng: null }), 2500);
+    const t = setTimeout(() => res({ lat: null, lng: null }), 2500);
     navigator.geolocation.getCurrentPosition(
-      (p) => { clearTimeout(t); done({ lat: p.coords.latitude, lng: p.coords.longitude }); },
-      () => { clearTimeout(t); done({ lat: null, lng: null }); },
+      (p) => { clearTimeout(t); res({ lat: p.coords.latitude, lng: p.coords.longitude }); },
+      () => { clearTimeout(t); res({ lat: null, lng: null }); },
       { enableHighAccuracy: true, timeout: 2500, maximumAge: 60000 },
     );
   });
@@ -313,7 +465,6 @@ $("save").addEventListener("click", async () => {
     lat, lng,
     is_open: $("isOpen").checked,
     photo: photoBlob || null,
-    sent: false,
   };
 
   await put(rec);                     // durable BEFORE any network attempt
@@ -321,7 +472,7 @@ $("save").addEventListener("click", async () => {
   $("isOpen").checked = false;
   clearPhoto();
   $("save").disabled = false;
-  render();
+  renderRecent();
   flush();
 });
 
@@ -357,18 +508,18 @@ async function flush() {
       await del(rec.id);              // only once BOTH parts are safely up
     }
     err("");
-  } catch (e) {
-    // Leave the queue intact and try again on the next tick or connectivity change.
-    paintStatus("error");
+  } catch {
+    paintStatus("error");             // leave the queue intact and retry later
   } finally {
     flushing = false;
     paintStatus();
-    render();
-    loadServer();
+    renderRecent();
+    loadRecent();
+    loadOpenCount();
   }
 }
 
-/* ------------------------------------------------------------------ status + log */
+/* ------------------------------------------------------------------ status */
 async function paintStatus(force) {
   const n = (await all()).length;
   const el = $("status"), txt = $("statusText");
@@ -380,36 +531,267 @@ async function paintStatus(force) {
   txt.textContent = "SYNCED";
 }
 
-const fmt = (ms) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-const esc = (s) => String(s).replace(/[&<>"']/g, (c) =>
-  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+/* ------------------------------------------------------------------ lists */
+function entryRow(e, opts) {
+  opts = opts || {};
+  const el = document.createElement(opts.pending ? "div" : "button");
+  el.className = "entry" + (opts.pending ? " pending" : "") + (e.is_open ? " open" : "");
+  if (!opts.pending) el.dataset.id = e.id;
+  const when = opts.full ? fmtFull(e.created_at) : fmtTime(e.created_at);
+  const tag = [e.context, e.is_open ? "open" : null, opts.pending ? "queued" : null]
+    .filter(Boolean).join(" · ");
+  el.innerHTML = '<span class="when">' + esc(when) + '</span>' +
+    '<span class="what">' + esc(e.body || "(photo)") +
+    '<span class="tag">' + esc(tag) + '</span></span>';
+  return el;
+}
 
-let serverEntries = [];
-async function loadServer() {
+function fill(node, entries, emptyMsg, opts) {
+  node.replaceChildren();
+  if (!entries.length) {
+    const d = document.createElement("div");
+    d.className = "empty";
+    d.textContent = emptyMsg;
+    node.append(d);
+    return;
+  }
+  entries.forEach((e) => node.append(entryRow(e, opts)));
+}
+
+/* The capture screen's own short list: queued items plus what the server has. */
+let recent = [];
+async function loadRecent() {
   if (!navigator.onLine) return;
   try {
-    const r = await fetch("/api/entries?limit=20");
-    if (r.ok) { serverEntries = (await r.json()).entries || []; render(); }
+    const r = await fetch("/api/entries?limit=10");
+    if (r.ok) { recent = (await r.json()).entries || []; renderRecent(); }
   } catch {}
 }
-
-async function render() {
-  const queued = await all();
-  const rows = [
-    ...queued.map((q) => ({ ...q, pending: true })),
-    ...serverEntries.map((e) => ({ ...e, pending: false })),
-  ];
-  const log = $("log");
-  if (!rows.length) { log.innerHTML = '<div class="empty">Nothing yet.</div>'; return; }
-  log.innerHTML = rows.map((r) => `
-    <div class="entry${r.pending ? " pending" : ""}">
-      <span class="when">${fmt(r.created_at)}</span>
-      <span class="what">${esc(r.body || "(photo)")}
-        <span class="tag">${esc(r.context)}${r.is_open ? " · open" : ""}${r.pending ? " · queued" : ""}</span>
-      </span>
-    </div>`).join("");
+async function renderRecent() {
+  const queued = (await all()).map((q) => Object.assign({}, q, { pending: true }));
+  const node = $("log");
+  node.replaceChildren();
+  const rows = queued.concat(recent).slice(0, 10);
+  if (!rows.length) { fill(node, [], "Nothing yet."); return; }
+  rows.forEach((e) => node.append(entryRow(e, { pending: e.pending })));
   paintStatus();
 }
+
+/* ---- day log ---- */
+let dayOffset = 0;
+function dayBounds(offset) {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  start.setDate(start.getDate() + offset);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);        // via setDate so a DST change stays correct
+  return { from: start.getTime(), to: end.getTime(), start: start };
+}
+async function loadDay() {
+  const b = dayBounds(dayOffset);
+  $("dayLabel").textContent =
+    dayOffset === 0 ? "Today"
+    : dayOffset === -1 ? "Yesterday"
+    : b.start.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+  $("dayNext").disabled = dayOffset >= 0;   // there are no captures in the future
+  try {
+    const r = await fetch("/api/entries?view=day&from=" + b.from + "&to=" + b.to);
+    const d = await r.json();
+    fill($("dayList"), d.entries || [], "Nothing logged this day.");
+  } catch {
+    fill($("dayList"), [], "Offline — the log needs a connection.");
+  }
+}
+$("dayPrev").addEventListener("click", () => { dayOffset--; loadDay(); });
+$("dayNext").addEventListener("click", () => { if (dayOffset < 0) { dayOffset++; loadDay(); } });
+
+/* ---- open items ---- */
+async function loadOpen() {
+  try {
+    const r = await fetch("/api/entries?view=open");
+    const d = await r.json();
+    const list = d.entries || [];
+    fill($("openList"), list, "Nothing open. All caught up.", { full: true });
+    setBadge(list.length);
+  } catch {
+    fill($("openList"), [], "Offline — open items need a connection.");
+  }
+}
+async function loadOpenCount() {
+  if (!navigator.onLine) return;
+  try {
+    const r = await fetch("/api/entries?view=open&limit=100");
+    if (r.ok) setBadge(((await r.json()).entries || []).length);
+  } catch {}
+}
+function setBadge(n) {
+  const b = $("openBadge");
+  b.textContent = String(n);
+  b.hidden = n === 0;
+}
+
+/* ---- search ---- */
+let searchTimer;
+$("q").addEventListener("input", (e) => {
+  clearTimeout(searchTimer);
+  const q = e.target.value.trim();
+  if (q.length < 2) { fill($("searchList"), [], "Type at least 2 characters."); return; }
+  searchTimer = setTimeout(async () => {
+    try {
+      const r = await fetch("/api/entries?view=search&q=" + encodeURIComponent(q));
+      const d = await r.json();
+      fill($("searchList"), d.entries || [], 'Nothing matches "' + q + '".', { full: true });
+    } catch {
+      fill($("searchList"), [], "Offline — search needs a connection.");
+    }
+  }, 250);
+});
+
+/* ------------------------------------------------------------------ detail */
+let current = null;
+
+document.addEventListener("click", (e) => {
+  const row = e.target.closest(".entry[data-id]");
+  if (row) openDetail(row.dataset.id);
+});
+$("detailBack").addEventListener("click", closeDetail);
+
+function closeDetail() {
+  $("detail").hidden = true;
+  current = null;
+  refreshCurrentView();
+}
+
+async function openDetail(id) {
+  $("detail").hidden = false;
+  $("detailBody").innerHTML = '<div class="empty">Loading…</div>';
+  try {
+    const r = await fetch("/api/entries/" + encodeURIComponent(id));
+    if (!r.ok) throw new Error();
+    current = await r.json();
+    renderDetail();
+  } catch {
+    $("detailBody").innerHTML = '<div class="empty">Could not load this entry.</div>';
+  }
+}
+
+function threadLink(label, e) {
+  return '<p class="thread">' + label + '</p>' +
+    '<button class="entry" data-id="' + esc(e.id) + '">' +
+    '<span class="when">' + esc(fmtTime(e.created_at)) + '</span>' +
+    '<span class="what">' + esc(e.body || "(photo)") + '</span></button>';
+}
+
+function renderDetail(rejectedText) {
+  const e = current;
+  const photos = (e.photos || [])
+    // A photo that will not load (missing object, no signal) should leave nothing
+    // behind rather than a broken-image sliver.
+    .map((p) => '<img class="photo" src="' + esc(p.url) + '" alt="" onerror="this.remove()">')
+    .join("");
+
+  // §4: body_raw is the original dictation and is never overwritten. Only worth
+  // showing once an edit has made it differ from the current text.
+  const raw = e.body_raw && e.body_raw !== e.body
+    ? '<div class="rawnote"><b>As originally dictated</b>' + esc(e.body_raw) + "</div>"
+    : "";
+
+  let thread = "";
+  if (e.resolves)    thread += threadLink("Closes out", e.resolves);
+  if (e.resolved_by) thread += threadLink("Closed out by", e.resolved_by);
+
+  // §6 defence 2: a rejected edit is never silently dropped — show both and let the
+  // user decide which to keep.
+  const conflict = rejectedText
+    ? '<div class="err on">This entry changed elsewhere while you were editing. ' +
+      "The current text is below; yours was:<br><br><em>" + esc(rejectedText) +
+      "</em><br><br>Edit again if you want to keep yours.</div>"
+    : "";
+
+  $("detailBody").innerHTML =
+    conflict + photos +
+    '<textarea id="editBody">' + esc(e.body || "") + "</textarea>" + raw +
+    '<div class="actions">' +
+      '<button class="btn sm" id="saveEdit">Save changes</button>' +
+      '<button class="btn sm ghost" id="toggleOpen">' +
+        (e.is_open ? "Mark done" : "Reopen") + "</button>" +
+    "</div>" +
+    '<dl class="meta">' +
+      "<dt>when</dt><dd>" + esc(fmtFull(e.created_at)) + "</dd>" +
+      "<dt>context</dt><dd>" + esc(e.context) + "</dd>" +
+      "<dt>status</dt><dd>" + (e.is_open ? "open follow-up" : "closed") + "</dd>" +
+      (e.edited_at ? "<dt>edited</dt><dd>" + esc(fmtFull(e.edited_at)) + "</dd>" : "") +
+      (e.lat != null ? "<dt>where</dt><dd>" + e.lat.toFixed(5) + ", " + e.lng.toFixed(5) + "</dd>" : "") +
+      "<dt>version</dt><dd>" + e.version + "</dd>" +
+      "<dt>id</dt><dd>" + esc(e.id) + "</dd>" +
+    "</dl>" + thread;
+
+  $("saveEdit").addEventListener("click", saveEdit);
+  $("toggleOpen").addEventListener("click", toggleOpen);
+}
+
+async function saveEdit() {
+  const text = $("editBody").value;
+  const btn = $("saveEdit");
+  btn.disabled = true;
+  try {
+    const r = await fetch("/api/entries/" + encodeURIComponent(current.id), {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ body: text, version: current.version }),
+    });
+    const d = await r.json();
+    if (r.status === 409) { current = d.current; renderDetail(text); return; }
+    if (!r.ok) throw new Error();
+    current = Object.assign({}, current, d);
+    renderDetail();
+  } catch {
+    err("Could not save that edit.");
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function toggleOpen() {
+  try {
+    const r = await fetch("/api/entries/" + encodeURIComponent(current.id), {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ is_open: !current.is_open }),
+    });
+    if (!r.ok) throw new Error();
+    current = await r.json();
+    renderDetail();
+    loadOpenCount();
+  } catch {
+    err("Could not update that follow-up.");
+  }
+}
+
+/* ------------------------------------------------------------------ routing */
+let view = "capture";
+function refreshCurrentView() {
+  if (view === "log") loadDay();
+  else if (view === "open") loadOpen();
+  else if (view === "capture") loadRecent();
+}
+function go(next) {
+  view = next;
+  ["capture", "log", "open", "search"].forEach((s) => {
+    $("view-" + s).hidden = s !== next;
+  });
+  document.querySelectorAll("nav button").forEach((b) => {
+    b.setAttribute("aria-current", String(b.dataset.view === next));
+  });
+  // Leaving capture with the camera live would hold the sensor open for nothing.
+  if (next !== "capture") { stopCamera(); }
+  refreshCurrentView();
+  if (next === "search") $("q").focus();
+}
+document.querySelector("nav").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-view]");
+  if (b) go(b.dataset.view);
+});
 
 /* ------------------------------------------------------------------ boot */
 addEventListener("online",  () => { paintStatus(); flush(); });
@@ -419,8 +801,10 @@ setInterval(() => { if (navigator.onLine) flush(); }, 30000);
 (async () => {
   idb = await openDb();
   await paintStatus();
-  await render();
-  await loadServer();
+  await renderRecent();
+  checkVersion();
+  loadRecent();
+  loadOpenCount();
   flush();
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/sw.js").catch(() => {});

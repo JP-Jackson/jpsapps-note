@@ -27,6 +27,26 @@ const db = new Db(env.DB, session.userId);  // built once, in middleware
 await db.usageToday();                       // handlers never pass a user_id
 ```
 
+## Versioning
+
+`package.json` holds the version, `MAJOR.MINOR.PATCH`. It is stamped into three
+places that cannot import it — the Worker (`src/version.ts`), the page
+(`<meta name="app-version">`) and the service worker cache name:
+
+```bash
+npm version minor --no-git-tag-version   # or edit package.json
+npm run version:sync
+```
+
+The page carries its own copy rather than just displaying what `/api/health`
+returns. The service worker caches the shell, so an old page can be paired with a
+new Worker; showing the server's number there would report "current" for a page that
+is not. When the two disagree the app says so and offers a reload that clears the
+cache first.
+
+CI re-runs the sync and fails if anything changes, so a bump can never be half
+applied. `npm run deploy` syncs first via `predeploy`.
+
 ## Deploying
 
 **Pushing to GitHub does not publish the app.** GitHub holds the source; Cloudflare

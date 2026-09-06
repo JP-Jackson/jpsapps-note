@@ -55,6 +55,33 @@ export interface EntryRow {
   is_open: number;
 }
 
+export interface AttachmentRow {
+  id: string;
+  kind: string;
+  r2_key: string | null;
+  mime: string | null;
+  bytes: number | null;
+  created_at: number;
+}
+
+/** An entry plus everything the detail view needs in one round trip. */
+export interface EntryDetail extends EntryRow {
+  version: number;
+  edited_at: number | null;
+  attachments: AttachmentRow[];
+  /** The entry that closed this one out, if any (§4 resolved_by). */
+  resolved_by: EntryRow | null;
+  /** The open entry this one closed out, if any — the other end of the thread. */
+  resolves: EntryRow | null;
+}
+
+/** Raised when an edit is based on a version the server has already moved past. */
+export class VersionConflict extends Error {
+  constructor(readonly current: EntryDetail) {
+    super("This entry changed since you started editing");
+  }
+}
+
 export interface NewAttachment {
   entry_id: string;
   kind: string;
@@ -266,6 +293,171 @@ export class Db {
             LIMIT ?`,
         )
         .bind(this.userId, limit),
+    );
+  }
+
+  /**
+   * One day's captures, newest first. The client sends the local day bounds rather
+   * than a date string: "today" is the user's day, and the server has no business
+   * guessing their timezone.
+   */
+  async entriesForDay(fromMs: number, toMs: number): Promise<EntryRow[]> {
+    return this.all<EntryRow>(
+      this.d1
+        .prepare(
+          `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open
+             FROM entries
+            WHERE user_id = ? AND deleted_at IS NULL
+              AND created_at >= ? AND created_at < ?
+            ORDER BY created_at DESC`,
+        )
+        .bind(this.userId, fromMs, toMs),
+    );
+  }
+
+  /**
+   * Open follow-ups, OLDEST first (§11 phase 3).
+   *
+   * The order is the point: the thing that has been hanging longest is the thing
+   * most likely to be forgotten, so it goes at the top rather than scrolling off the
+   * bottom. Rides idx_entries_open(user_id, is_open, created_at).
+   */
+  async openEntries(limit = 100): Promise<EntryRow[]> {
+    return this.all<EntryRow>(
+      this.d1
+        .prepare(
+          `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open
+             FROM entries
+            WHERE user_id = ? AND is_open = 1 AND deleted_at IS NULL
+            ORDER BY created_at ASC
+            LIMIT ?`,
+        )
+        .bind(this.userId, limit),
+    );
+  }
+
+  /**
+   * Substring search over the note and the original dictation.
+   *
+   * Deliberately a LIKE scan, not FTS: §3 rules out retrieval machinery at this size,
+   * and a few thousand entries scan comfortably inside the daily row-read budget.
+   * `body_raw` is searched too, so a word that an edit removed is still findable.
+   */
+  async searchEntries(q: string, limit = 50): Promise<EntryRow[]> {
+    const like = `%${q.replace(/[%_\\]/g, (c) => "\\" + c)}%`;
+    return this.all<EntryRow>(
+      this.d1
+        .prepare(
+          `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open
+             FROM entries
+            WHERE user_id = ? AND deleted_at IS NULL
+              AND (body LIKE ?2 ESCAPE '\\' OR body_raw LIKE ?2 ESCAPE '\\')
+            ORDER BY created_at DESC
+            LIMIT ?3`,
+        )
+        .bind(this.userId, like, limit),
+    );
+  }
+
+  /** An entry with its photos and both ends of its follow-up thread. */
+  async entryDetail(id: string): Promise<EntryDetail | null> {
+    const row = await this.first<EntryRow & { version: number; edited_at: number | null; resolved_by_id: string | null }>(
+      this.d1
+        .prepare(
+          `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open,
+                  version, edited_at, resolved_by AS resolved_by_id
+             FROM entries
+            WHERE id = ? AND user_id = ? AND deleted_at IS NULL`,
+        )
+        .bind(id, this.userId),
+    );
+    if (!row) return null;
+
+    const attachments = await this.all<AttachmentRow>(
+      this.d1
+        .prepare(
+          `SELECT id, kind, r2_key, mime, bytes, created_at
+             FROM attachments
+            WHERE entry_id = ? AND user_id = ?
+            ORDER BY created_at ASC`,
+        )
+        .bind(id, this.userId),
+    );
+
+    const brief = `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open
+                     FROM entries WHERE id = ? AND user_id = ? AND deleted_at IS NULL`;
+
+    const resolved_by = row.resolved_by_id
+      ? await this.first<EntryRow>(this.d1.prepare(brief).bind(row.resolved_by_id, this.userId))
+      : null;
+
+    // The other direction: did THIS entry close something out?
+    const resolves = await this.first<EntryRow>(
+      this.d1
+        .prepare(
+          `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open
+             FROM entries WHERE resolved_by = ? AND user_id = ? AND deleted_at IS NULL`,
+        )
+        .bind(id, this.userId),
+    );
+
+    const { resolved_by_id: _drop, ...entry } = row;
+    return { ...entry, attachments, resolved_by, resolves };
+  }
+
+  /**
+   * Edit an entry's note text.
+   *
+   * `body_raw` is never touched (§4): the original dictation survives every edit, so
+   * you can always re-derive from the words actually spoken. `version` implements the
+   * first of §6's conflict defences — the client sends the version it started from and
+   * the write is refused if the server has moved on, rather than silently overwriting.
+   */
+  async editEntry(id: string, body: string | null, expectedVersion: number): Promise<EntryDetail> {
+    const res = await this.d1
+      .prepare(
+        `UPDATE entries
+            SET body = ?, edited_at = ?, version = version + 1
+          WHERE id = ? AND user_id = ? AND version = ? AND deleted_at IS NULL`,
+      )
+      .bind(body, Date.now(), id, this.userId, expectedVersion)
+      .run();
+    readMeta(this.meter, res.meta);
+
+    const current = await this.entryDetail(id);
+    if (!current) throw new Error("No such entry");
+    // Zero rows changed with the row still present means the version moved on.
+    if ((res.meta?.changes ?? 0) === 0) throw new VersionConflict(current);
+    return current;
+  }
+
+  /**
+   * Close out an open follow-up.
+   *
+   * Resolving points the open entry at the entry that answered it (§4 resolved_by),
+   * so the thread is navigable from either end, and clears is_open so it leaves the
+   * open list. Passing no resolver just closes it.
+   */
+  async resolveEntry(id: string, resolverId: string | null): Promise<void> {
+    await this.run(
+      this.d1
+        .prepare(
+          `UPDATE entries SET is_open = 0, resolved_by = ?
+            WHERE id = ? AND user_id = ? AND deleted_at IS NULL`,
+        )
+        .bind(resolverId, id, this.userId),
+    );
+  }
+
+  /** Reopen a follow-up that was closed too eagerly. */
+  async reopenEntry(id: string): Promise<void> {
+    await this.run(
+      this.d1
+        .prepare(
+          `UPDATE entries SET is_open = 1, resolved_by = NULL
+            WHERE id = ? AND user_id = ? AND deleted_at IS NULL`,
+        )
+        .bind(id, this.userId),
     );
   }
 

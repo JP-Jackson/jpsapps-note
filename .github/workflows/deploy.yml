@@ -38,6 +38,17 @@ jobs:
       # production, and this is the whole reason the deploy is not just a wrangler call.
       - run: npm run typecheck
 
+      # A version bump that only touched package.json would ship a page labelled with
+      # the old number -- worse than no version at all, because it reads as truth.
+      - name: Check version stamps are in sync
+        run: |
+          npm run version:sync
+          if ! git diff --quiet; then
+            echo "::error::Version stamps are stale. Run 'npm run version:sync' and commit." >&2
+            git --no-pager diff --stat
+            exit 1
+          fi
+
       # Uses the wrangler pinned in package.json, so CI and a local deploy are the
       # same version and cannot drift apart.
       - run: npx wrangler deploy

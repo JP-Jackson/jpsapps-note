@@ -12,8 +12,9 @@
 
 import { Hono } from "hono";
 import type { Env } from "./env";
-import { Db } from "./db";
+import { Db, VersionConflict } from "./db";
 import { photoKey } from "./ids";
+import { VERSION } from "./version";
 import { authenticate, AuthError, type Session } from "./auth";
 
 type Vars = { session: Session; db: Db };
@@ -24,6 +25,7 @@ app.get("/api/health", async (c) => {
   const db = await Db.health(c.env.DB);
   return c.json({
     ok: db.ok,
+    version: VERSION,
     tables: db.tables,
     environment: c.env.ENVIRONMENT,
     accessConfigured: Boolean(c.env.ACCESS_TEAM_DOMAIN && c.env.ACCESS_AUD),
@@ -106,10 +108,98 @@ app.post("/api/entries", async (c) => {
   return c.json({ id, created }, created ? 201 : 200);
 });
 
-/** Recent captures. Enough for the capture screen to show what just landed. */
+/**
+ * The views (§11 phase 3), chosen by ?view=:
+ *   (none)  recent captures, for the capture screen
+ *   day     one local day — the client sends its own bounds, see below
+ *   open    unresolved follow-ups, oldest first
+ *   search  substring over body and body_raw
+ */
 app.get("/api/entries", async (c) => {
+  const db = c.get("db");
   const limit = Math.min(Number(c.req.query("limit")) || 20, 100);
-  return c.json({ entries: await c.get("db").recentEntries(limit) });
+
+  switch (c.req.query("view")) {
+    case "day": {
+      // Day bounds come from the device. "Today" means the user's today, and the
+      // server has no reliable way to know their timezone.
+      const from = Number(c.req.query("from"));
+      const to = Number(c.req.query("to"));
+      if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) {
+        return c.json({ error: "from and to (epoch ms) are required" }, 400);
+      }
+      return c.json({ entries: await db.entriesForDay(from, to) });
+    }
+    case "open":
+      return c.json({ entries: await db.openEntries(Math.min(limit, 100)) });
+    case "search": {
+      const q = (c.req.query("q") ?? "").trim();
+      if (q.length < 2) return c.json({ entries: [], error: "Search needs 2+ characters" });
+      return c.json({ entries: await db.searchEntries(q, Math.min(limit, 50)) });
+    }
+    default:
+      return c.json({ entries: await db.recentEntries(limit) });
+  }
+});
+
+/** One entry with its photos and both ends of its follow-up thread. */
+app.get("/api/entries/:id", async (c) => {
+  const detail = await c.get("db").entryDetail(c.req.param("id"));
+  if (!detail) return c.json({ error: "No such entry" }, 404);
+  return c.json({
+    ...detail,
+    photos: detail.attachments
+      .filter((a) => a.kind === "photo" && a.r2_key)
+      .map((a) => ({ id: a.id, url: `${c.env.IMG_BASE}/${a.r2_key}` })),
+  });
+});
+
+/**
+ * Edit the note, or open/close a follow-up.
+ *
+ * An edit carries the version it started from. If the server has moved on we return
+ * 409 WITH the current row, so the client can show both and let the user choose —
+ * §6 is explicit that a rejected edit is never silently dropped.
+ */
+app.patch("/api/entries/:id", async (c) => {
+  const id = c.req.param("id");
+  const db = c.get("db");
+
+  let payload: Record<string, unknown>;
+  try {
+    payload = (await c.req.json()) as Record<string, unknown>;
+  } catch {
+    return c.json({ error: "Body must be JSON" }, 400);
+  }
+
+  if (payload.is_open === false) {
+    const resolver = typeof payload.resolved_by === "string" ? payload.resolved_by : null;
+    if (resolver && !(await db.ownsEntry(resolver))) {
+      return c.json({ error: "resolved_by is not one of your entries" }, 400);
+    }
+    await db.resolveEntry(id, resolver);
+  } else if (payload.is_open === true) {
+    await db.reopenEntry(id);
+  }
+
+  if (typeof payload.body === "string") {
+    const version = Number(payload.version);
+    if (!Number.isFinite(version)) {
+      return c.json({ error: "version is required to edit — it is how a lost update is caught" }, 400);
+    }
+    try {
+      return c.json(await db.editEntry(id, payload.body.trim() || null, version));
+    } catch (err) {
+      if (err instanceof VersionConflict) {
+        return c.json({ error: err.message, conflict: true, current: err.current }, 409);
+      }
+      throw err;
+    }
+  }
+
+  const detail = await db.entryDetail(id);
+  if (!detail) return c.json({ error: "No such entry" }, 404);
+  return c.json(detail);
 });
 
 /**
