@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#16222E">
+<title>Note</title>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;700&family=IBM+Plex+Mono:wght@600&display=swap" rel="stylesheet">
+<style>
+/* ==========================================================================
+   jpsapps launch sequence — bloom + wash
+   tile   0    – 0.21      bloom  1.24 – 2.94
+   bar    0.20 – 0.56      breath 1.27 – 2.97
+   stem   0.39 – 0.74      wash   1.30 – 2.60
+   pulse  0.74 – 1.24      name   2.05 – 2.81
+                           domain 2.75 – 3.35
+   still  3.35 – 3.85 (0.50s)     clear  3.85 – 4.21
+   ========================================================================== */
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Archivo,-apple-system,"Segoe UI",Roboto,sans-serif;background:#F3F5F4;color:#16222E;-webkit-font-smoothing:antialiased}
+
+#splash{
+  --tile:#16222E;
+  --accent:#2C7BC4;
+  --halo:#7CC0F5;
+  --glow:rgba(150,205,250,1);
+  --glow-0:rgba(150,205,250,0);
+  --wash:#CFE6FA;
+}
+#splash[data-app="bid"]  {--accent:#2E9E63;--halo:#6FD3A0;--glow:rgba(130,225,175,1);--glow-0:rgba(130,225,175,0);--wash:#CDEEDC}
+#splash[data-app="parts"]{--accent:#D9931A;--halo:#F2C069;--glow:rgba(245,200,120,1);--glow-0:rgba(245,200,120,0);--wash:#F7E6C4}
+#splash[data-app="crew"] {--accent:#D9483C;--halo:#F08A80;--glow:rgba(245,160,150,1);--glow-0:rgba(245,160,150,0);--wash:#F7D9D5}
+
+.app{padding:16px;max-width:430px;margin:0 auto}
+.abar{background:#16222E;color:#E9EEF3;border-radius:10px;padding:12px 14px;display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.abar .t{font-size:16px;font-weight:700;letter-spacing:-.02em;flex:1}
+.st{display:flex;align-items:center;gap:5px;font-size:9.5px;font-weight:600;letter-spacing:.05em}
+.st i{width:6px;height:6px;border-radius:50%;background:#4CC286;display:block}
+.big{background:#2C7BC4;color:#fff;border-radius:11px;padding:20px;text-align:center;font-weight:700;font-size:16px;box-shadow:0 4px 0 #1B5486;margin-bottom:12px}
+.card{background:#fff;border:1px solid #DDE3E0;border-radius:9px;padding:12px;margin-bottom:8px;font-size:13px}
+.card small{display:block;color:#7A868C;font-size:11px;margin-top:5px}
+
+#splash{position:fixed;inset:0;z-index:9999;background:var(--tile);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px}
+#splash.done{display:none}
+#wash{position:absolute;inset:0;background:var(--wash);opacity:0;pointer-events:none}
+#splash svg{width:112px;height:112px;overflow:visible}
+.tile{fill:var(--tile);opacity:0}
+.mk path{fill:none;stroke:#fff;stroke-linecap:butt;stroke-linejoin:miter;
+  stroke-dasharray:var(--len,300);stroke-dashoffset:var(--len,300)}
+.kl{fill:none;stroke:var(--accent);stroke-width:4;
+  stroke-dasharray:var(--kl,400);stroke-dashoffset:var(--kl,400)}
+.flash{fill:none;stroke:#fff;stroke-width:4;opacity:0}
+.halo,.spark{fill:none;stroke-linecap:round;
+  stroke-dasharray:26 var(--kl,400);stroke-dashoffset:26px}
+.halo{stroke:var(--halo);stroke-width:12;filter:blur(6px)}
+.spark{stroke:#fff;stroke-width:5;filter:drop-shadow(0 0 7px var(--halo))}
+.word{text-align:center}
+.word .n{font-size:27px;font-weight:700;letter-spacing:-.02em;color:#fff;line-height:1;opacity:0;transform:translateY(9px)}
+.word .d{font-family:"IBM Plex Mono",monospace;font-size:9.5px;font-weight:600;letter-spacing:.22em;color:rgba(255,255,255,.5);margin-top:9px;opacity:0}
+
+/* ---- timings ---- */
+.go .tile{animation:fade 0.21s ease-out 0s forwards}
+.go .bar{animation:draw 0.36s cubic-bezier(.45,0,.25,1) 0.20s forwards}
+.go .stem{animation:draw 0.35s cubic-bezier(.45,0,.25,1) 0.39s forwards}
+.go .kl{animation:draw 0.50s cubic-bezier(.7,0,.84,0) 0.74s forwards}
+.go .halo,
+.go .spark{animation:chase 0.50s cubic-bezier(.7,0,.84,0) 0.74s forwards}
+.go .flash{animation:bloom 1.70s linear 1.24s forwards}
+.go .mk{animation:breath 1.70s linear 1.27s forwards;transform-origin:60px 60px}
+.go #wash{animation:wash 1.30s linear 1.30s forwards}
+.go .word .n{animation:rise 0.76s cubic-bezier(.25,0,.15,1) 2.05s forwards}
+.go .word .d{animation:fade 0.60s ease-out 2.75s forwards}
+.go{animation:clear 0.36s ease-in 3.85s forwards}
+
+@keyframes fade{to{opacity:1}}
+@keyframes draw{to{stroke-dashoffset:0}}
+@keyframes chase{to{stroke-dashoffset:calc(0px - var(--kl,400) * 1px)}}
+@keyframes rise{to{opacity:1;transform:translateY(0)}}
+@keyframes bloom{
+  0%{opacity:0;stroke-width:4;filter:drop-shadow(0 0 0 var(--glow-0))}
+  34%{opacity:1;stroke-width:8;filter:drop-shadow(0 0 30px var(--glow))}
+  100%{opacity:0;stroke-width:4;filter:drop-shadow(0 0 0 var(--glow-0))}}
+@keyframes breath{
+  0%{filter:drop-shadow(0 0 0 var(--glow-0));transform:scale(1)}
+  28%{filter:drop-shadow(0 0 26px var(--glow));transform:scale(1.035)}
+  100%{filter:drop-shadow(0 0 0 var(--glow-0));transform:scale(1)}}
+@keyframes wash{0%{opacity:0}34%{opacity:.13}100%{opacity:0}}
+@keyframes clear{to{opacity:0;visibility:hidden}}
+
+@media (prefers-reduced-motion:reduce){
+  .go *{animation:none!important}
+  .tile,.word .n,.word .d{opacity:1!important;transform:none!important}
+  .mk path,.kl{stroke-dashoffset:0!important}
+  .halo,.spark,.flash,#wash{opacity:0!important}
+  .go{animation:clear .3s linear 1s forwards!important}
+}
+
+/* demo chrome — delete #demo and its markup for production */
+#demo{position:fixed;right:14px;bottom:14px;z-index:10000;display:flex;gap:6px;background:rgba(22,34,46,.92);padding:6px;border-radius:11px}
+#demo button{font:inherit;font-size:12.5px;font-weight:600;border:0;border-radius:7px;padding:9px 13px;background:rgba(255,255,255,.14);color:#fff;cursor:pointer}
+#demo button.on{background:#fff;color:#16222E}
+#demo button.play{background:#2C7BC4}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <div class="abar"><span class="t" id="apptitle">Note</span><span class="st"><i></i>SYNCED</span></div>
+  <div class="big">Snap &amp; say it</div>
+  <div class="card">Compressor 2 tripping on startup. Contactor pitted, unloader sticking.<small>10:48 · Shop floor</small></div>
+  <div class="card">Miller F-150 — rear rotors scored, pads at 2mm.<small>09:20 · Bay 2</small></div>
+  <div class="card">Look up this part and get an owner's manual.<small>08:05 · Open</small></div>
+</div>
+
+<div id="splash" data-app="note">
+  <div id="wash"></div>
+  <svg viewBox="0 0 120 120" aria-hidden="true">
+    <rect class="tile" width="120" height="120" rx="26"/>
+    <path class="kl"    d="M27 7 H93 A20 20 0 0 1 113 27 V93 A20 20 0 0 1 93 113 H27 A20 20 0 0 1 7 93 V27 A20 20 0 0 1 27 7 Z"/>
+    <path class="flash" d="M27 7 H93 A20 20 0 0 1 113 27 V93 A20 20 0 0 1 93 113 H27 A20 20 0 0 1 7 93 V27 A20 20 0 0 1 27 7 Z"/>
+    <path class="halo"  d="M27 7 H93 A20 20 0 0 1 113 27 V93 A20 20 0 0 1 93 113 H27 A20 20 0 0 1 7 93 V27 A20 20 0 0 1 27 7 Z"/>
+    <path class="spark" d="M27 7 H93 A20 20 0 0 1 113 27 V93 A20 20 0 0 1 93 113 H27 A20 20 0 0 1 7 93 V27 A20 20 0 0 1 27 7 Z"/>
+    <g class="mk"><g transform="translate(60,60) scale(0.9) translate(-57,-62)">
+      <path class="bar"  d="M18 24 H70 C91 24 95 32 95 44 C95 56 91 63 70 63 H56" stroke-width="12"/>
+      <path class="stem" d="M56 24 V80 C56 92 47 98 38 98 C28 98 23 91 22 83" stroke-width="17"/>
+    </g></g>
+  </svg>
+  <div class="word"><div class="n" id="appname">Note</div><div class="d">JPSAPPS.COM</div></div>
+</div>
+
+<div id="demo">
+  <button class="play" onclick="play(true)">Replay</button>
+  <button class="on" onclick="show('note','Note',this)">Note</button>
+  <button onclick="show('bid','Bid',this)">Bid</button>
+  <button onclick="show('parts','Parts',this)">Parts</button>
+  <button onclick="show('crew','Crew',this)">Crew</button>
+</div>
+
+<script>
+const splash = document.getElementById('splash');
+const TOTAL_MS = 4330;                 // 3.85 + 0.36 clear, plus a little slack
+
+function measure(){
+  splash.querySelectorAll('.mk path').forEach(p=>
+    p.style.setProperty('--len', Math.ceil(p.getTotalLength())));
+  splash.style.setProperty('--kl',
+    Math.ceil(splash.querySelector('.kl').getTotalLength()));
+}
+
+function play(force){
+  if(!force && sessionStorage.getItem('jpsapps-splash-seen')){
+    splash.classList.add('done'); return;
+  }
+  try{ sessionStorage.setItem('jpsapps-splash-seen','1'); }catch(e){}
+  splash.classList.remove('done','go');
+  splash.style.opacity=''; splash.style.visibility='';
+  splash.getBoundingClientRect();
+  measure();
+  splash.classList.add('go');
+  clearTimeout(play._t);
+  play._t = setTimeout(()=>splash.classList.add('done'), TOTAL_MS);
+}
+
+/* demo only */
+function show(app,label,btn){
+  document.querySelectorAll('#demo button:not(.play)').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  splash.dataset.app = app;
+  document.getElementById('appname').textContent = label;
+  document.getElementById('apptitle').textContent = label;
+  play(true);
+}
+
+play();
+</script>
+</body>
+</html>
