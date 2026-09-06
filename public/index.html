@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#16222E">
-<meta name="app-version" content="1.7.0">
+<meta name="app-version" content="1.8.0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Note">
@@ -316,6 +316,24 @@
   .rel.now .v{color:var(--blue)}
   .rel .w{font-size:14px;line-height:1.4}
 
+  /* ---------- notes importer ---------- */
+  #notesImport{position:fixed;inset:0;z-index:43;background:var(--bg);overflow-y:auto;padding:0 0 40px}
+  #notesImport .bar{background:var(--navy);color:#fff;display:flex;align-items:center;gap:12px;
+    padding:12px 16px;padding-top:calc(12px + env(safe-area-inset-top));position:sticky;top:0}
+  #notesImport .bar button{background:none;border:0;color:#fff;font:600 15px var(--font-ui);
+    cursor:pointer;padding:4px 0}
+  #notesImport .body{max-width:560px;margin:0 auto;padding:16px}
+  /* Parsing someone else's HTML is guesswork, so nothing is written until you have
+     seen exactly what it produced and can drop the rows it got wrong. */
+  .pv{background:var(--card);border:1px solid var(--line);border-radius:9px;
+    padding:10px 12px;margin-bottom:7px;display:flex;gap:10px;align-items:flex-start}
+  .pv .when{font:500 10px/1.5 var(--font-mono);color:var(--ink-2);white-space:nowrap;padding-top:2px}
+  .pv .txt{flex:1;font-size:14px;line-height:1.4;min-width:0;word-wrap:break-word}
+  .pv .drop{background:none;border:0;color:var(--ink-2);cursor:pointer;font-size:19px;
+    line-height:1;padding:0 2px}
+  .pv.gone{opacity:.35}
+  .pv.gone .txt{text-decoration:line-through}
+
   /* ---------- add a thing ---------- */
   #addThing{position:fixed;inset:0;z-index:42;background:var(--bg);overflow-y:auto;padding:0 0 40px}
   #addThing .bar{background:var(--navy);color:#fff;display:flex;align-items:center;gap:12px;
@@ -587,9 +605,18 @@
     <h2>Bulk add</h2>
     <p class="empty" style="padding-top:0">Paste a list Claude structured for you — one per line as
       <code>Name | type | context</code>, or JSON.</p>
+    <!-- Claude has no idea this app exists. This hands it the schema so you never
+         have to remember or retype it. -->
+    <button class="btn ghost sm" id="copyPrompt" style="margin-bottom:10px">
+      Copy the prompt for Claude</button>
     <textarea id="importBox" placeholder="Compressor 2 | equipment | work&#10;F-150 | vehicle | vehicles&#10;Mower | equipment | home"></textarea>
     <button class="btn ghost sm" id="importBtn">Import list</button>
     <div id="importResult" class="empty"></div>
+
+    <h2>Import notes</h2>
+    <p class="empty" style="padding-top:0">Paste an HTML or text log — a Base44 write-up,
+      say — and it becomes dated entries you can search.</p>
+    <button class="btn ghost sm" id="openNotesImport">Paste a log</button>
   </section>
 
   <!-- ============ SEARCH ============ -->
@@ -606,6 +633,32 @@
     <strong style="font-size:15px">Entry</strong>
   </div>
   <div class="body" id="detailBody"></div>
+</div>
+
+<div id="notesImport" hidden>
+  <div class="bar">
+    <button id="notesBack">&lsaquo; Cancel</button>
+    <strong style="font-size:15px">Import notes</strong>
+  </div>
+  <div class="body">
+    <p class="empty" style="padding-top:0">Paste HTML or plain text. Each heading or list item
+      becomes one entry; any date found is used as its time.</p>
+    <textarea id="notesRaw" placeholder="&lt;h3&gt;6 Sep 2026&lt;/h3&gt;&lt;p&gt;Fixed the record view…&lt;/p&gt;"
+      style="min-height:150px"></textarea>
+    <div class="chips" id="notesCtx">
+      <button class="chip" data-ictx="work"     aria-pressed="true">Work</button>
+      <button class="chip" data-ictx="home"     aria-pressed="false">Home</button>
+      <button class="chip" data-ictx="vehicles" aria-pressed="false">Vehicles</button>
+    </div>
+    <label class="row" style="gap:8px">Attach to
+      <select id="notesSubject" style="flex:1;border:1px solid var(--line);border-radius:8px;
+        background:var(--card);color:var(--ink);padding:11px;font:400 15px var(--font-ui)">
+        <option value="">— nothing —</option>
+      </select>
+    </label>
+    <button class="btn ghost sm" id="parseNotes" style="margin-bottom:12px">Preview</button>
+    <div id="notesPreview"></div>
+  </div>
 </div>
 
 <div id="addThing" hidden>
@@ -1455,7 +1508,7 @@ async function toggleOpen() {
    same path and the stack can never drift out of step with what is on screen. */
 // Order matters: the topmost open one is what back should close, so newer/stacked
 // sheets come first. Miss one here and back silently falls through to leaving the app.
-const OVERLAYS = ["addThing", "detail", "subject", "settings"];
+const OVERLAYS = ["notesImport", "addThing", "detail", "subject", "settings"];
 
 function openOverlay(id) {
   $(id).hidden = false;
@@ -1524,6 +1577,7 @@ document.querySelector("nav").addEventListener("click", (e) => {
    One line per release, newest first. Kept deliberately short: it exists to answer
    "did the thing I asked for actually ship", not to be release notes. */
 const RELEASES = [
+  ["1.8.0", "Import an HTML or text log as dated entries; copy the Claude prompt"],
   ["1.7.0", "Adding a thing is a real screen; read and edit split; Android back works"],
   ["1.6.0", "Capture rebuilt for one-handed use; places suggested by location; version history"],
   ["1.5.0", "Things: details, history, templates and bulk import"],
@@ -1754,6 +1808,228 @@ async function saveSubject() {
     renderSubject();
     loadSubjects();
   } catch { err("Could not save that."); }
+}
+
+/* ---- handing Claude the schema ----
+   Claude has no idea this app exists, so anything it produces is a guess unless it is
+   told the shape. This copies a prompt that states it exactly; paste it once into a
+   Claude Project and every chat there knows. The MCP connector removes the need
+   entirely (§8a) — Claude discovers the tools itself — but this works today. */
+const CLAUDE_PROMPT = [
+  "I keep a log called Note. I'm going to describe things I work on — equipment,",
+  "vehicles, and anything else I want a history for.",
+  "",
+  "Reply with ONLY a JSON array, no commentary, in exactly this shape:",
+  "",
+  '[{"name": "Compressor 2",',
+  '  "type": "equipment",',
+  '  "context": "work",',
+  '  "attributes": {"Make": "Ingersoll Rand", "Voltage / phase": "480V 3ph"}}]',
+  "",
+  'type is one of: "equipment", "vehicle", "generic".',
+  'context is one of: "work", "home", "vehicles".',
+  "attributes is free-form — only include fields I actually mention.",
+  "",
+  "Here is what I have:",
+].join("\n");
+
+$("copyPrompt").addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(CLAUDE_PROMPT);
+    $("copyPrompt").textContent = "Copied — paste it into Claude";
+    setTimeout(() => { $("copyPrompt").textContent = "Copy the prompt for Claude"; }, 2500);
+  } catch {
+    // Clipboard needs a user gesture and permission; fall back to showing it.
+    $("importBox").value = CLAUDE_PROMPT;
+    $("importResult").textContent = "Could not reach the clipboard — copy it from the box above.";
+  }
+});
+
+/* ---- importing an existing log ----
+   §12 leaves this open: a Base44 write-up lives as HTML elsewhere and should end up
+   attached to the right day. Parsing someone else's markup is guesswork, so this
+   previews first and writes nothing until the rows have been looked at.
+
+   Entries reuse the ordinary capture path, ids and all, so an import is
+   indistinguishable from having typed them — and replaying one is a no-op. */
+let notesCtx = "work", parsed = [];
+
+$("openNotesImport").addEventListener("click", () => {
+  notesCtx = context;
+  document.querySelectorAll("[data-ictx]").forEach((b) =>
+    b.setAttribute("aria-pressed", String(b.dataset.ictx === notesCtx)));
+  const sel = $("notesSubject");
+  sel.innerHTML = '<option value="">— nothing —</option>' +
+    subjects.map((s) => '<option value="' + esc(s.id) + '">' + esc(s.name) + "</option>").join("");
+  $("notesPreview").innerHTML = "";
+  parsed = [];
+  openOverlay("notesImport");
+});
+$("notesBack").addEventListener("click", () => closeOverlay("notesImport"));
+$("notesCtx").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-ictx]");
+  if (!b) return;
+  notesCtx = b.dataset.ictx;
+  document.querySelectorAll("[data-ictx]").forEach((x) =>
+    x.setAttribute("aria-pressed", String(x.dataset.ictx === notesCtx)));
+});
+
+/** Pull a date out of a line if there is one. Falls back to the caller's default. */
+function sniffDate(text) {
+  const patterns = [
+    /\b(\d{4}-\d{2}-\d{2})\b/,                                  // 2026-09-06
+    /\b(\d{1,2}\s+[A-Z][a-z]{2,8}\s+\d{4})\b/,                     // 6 Sep 2026
+    /\b([A-Z][a-z]{2,8}\s+\d{1,2},?\s+\d{4})\b/,                   // Sep 6, 2026
+    /\b(\d{1,2}\/\d{1,2}\/\d{4})\b/,                             // 9/6/2026
+  ];
+  for (const re of patterns) {
+    const m = text.match(re);
+    if (m) {
+      const t = Date.parse(m[1]);
+      if (!Number.isNaN(t)) return t;
+    }
+  }
+  return null;
+}
+
+/** Remove a date once it has become the timestamp, plus any separator left behind. */
+function stripDate(text) {
+  return text
+    .replace(/\b\d{4}-\d{2}-\d{2}\b/, "")
+    .replace(/\b\d{1,2}\s+[A-Z][a-z]{2,8}\s+\d{4}\b/, "")
+    .replace(/\b[A-Z][a-z]{2,8}\s+\d{1,2},?\s+\d{4}\b/, "")
+    .replace(/\b\d{1,2}\/\d{1,2}\/\d{4}\b/, "")
+    .replace(/^\s*[-–—:]\s*/, "")
+    .replace(/\s*[-–—:]\s*$/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Split a pasted log into entries.
+ *
+ * Headings and list items are the two ways people actually structure a log, so those
+ * are the split points; a heading carries its following text with it. HTML is walked
+ * as a document rather than regexed, which also strips scripts and markup safely.
+ */
+function parseNotes(raw) {
+  const looksHtml = /<[a-z][\s\S]*>/i.test(raw);
+  const out = [];
+  let carried = null;      // date from the most recent heading
+  let pending = null;      // a heading waiting for its body text
+
+  const flush = () => {
+    if (pending && pending.text.trim()) out.push(pending);
+    pending = null;
+  };
+
+  if (looksHtml) {
+    const doc = new DOMParser().parseFromString(raw, "text/html");
+    doc.querySelectorAll("script,style").forEach((n) => n.remove());
+
+    doc.body.querySelectorAll("h1,h2,h3,h4,h5,li,p").forEach((n) => {
+      const text = (n.textContent || "").replace(/\s+/g, " ").trim();
+      if (!text) return;
+      const found = sniffDate(text);
+      // Strip the date once it has been read, or every entry repeats its own timestamp.
+      const body = found ? stripDate(text) : text;
+
+      if (/^H[1-5]$/.test(n.tagName)) {
+        flush();
+        if (found) carried = found;
+        // A heading that is nothing but a date is a marker for what follows,
+        // not an entry of its own.
+        pending = { at: found || carried, text: body };
+        return;
+      }
+
+      // A list item is always its own entry — merging them into the paragraph above
+      // was losing them entirely.
+      if (n.tagName === "LI") {
+        flush();
+        out.push({ at: found || carried, text: body });
+        return;
+      }
+
+      if (pending) {
+        pending.text = pending.text ? pending.text + " — " + body : body;
+        return;
+      }
+      out.push({ at: found || carried, text: body });
+    });
+    flush();
+  } else {
+    raw.split(/\n{2,}|\n(?=[-*\u2022])/).forEach((block) => {
+      const text = block.replace(/\s+/g, " ").replace(/^[-*\u2022]\s*/, "").trim();
+      if (!text) return;
+      const found = sniffDate(text);
+      if (found) carried = found;
+      out.push({ at: found || carried, text: found ? stripDate(text) : text });
+    });
+  }
+
+  return out
+    .filter((e) => e.text && e.text.length > 2)
+    .map((e, i) => ({ ...e, id: crypto.randomUUID(), keep: true, idx: i }));
+}
+
+$("parseNotes").addEventListener("click", () => {
+  parsed = parseNotes($("notesRaw").value);
+  const box = $("notesPreview");
+  if (!parsed.length) {
+    box.innerHTML = '<div class="empty">Nothing found to import.</div>';
+    return;
+  }
+  box.innerHTML =
+    '<h2>' + parsed.length + " found — drop any that are wrong</h2>" +
+    parsed.map((e) =>
+      '<div class="pv" data-pv="' + e.idx + '">' +
+      '<span class="when">' + (e.at ? esc(fmtFull(e.at)) : "no date") + "</span>" +
+      '<span class="txt">' + esc(e.text.slice(0, 300)) + "</span>" +
+      '<button class="drop" title="Drop">&times;</button></div>').join("") +
+    '<button class="btn" id="doImport" style="margin-top:10px">Import these</button>';
+
+  box.querySelectorAll(".pv").forEach((row) => {
+    row.querySelector(".drop").addEventListener("click", () => {
+      const e = parsed[+row.dataset.pv];
+      e.keep = !e.keep;
+      row.classList.toggle("gone", !e.keep);
+    });
+  });
+  $("doImport").addEventListener("click", runImport);
+});
+
+async function runImport() {
+  const keep = parsed.filter((e) => e.keep);
+  if (!keep.length) return;
+  const subjectId = $("notesSubject").value;
+  const btn = $("doImport");
+  btn.disabled = true;
+  btn.textContent = "Importing…";
+
+  let ok = 0;
+  for (const e of keep) {
+    try {
+      const r = await fetch("/api/entries", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          id: e.id,
+          created_at: e.at || Date.now(),
+          context: notesCtx,
+          body: e.text,
+          is_open: false,
+          subject_ids: subjectId ? [subjectId] : [],
+        }),
+      });
+      if (r.ok) ok++;
+    } catch {}
+  }
+  btn.disabled = false;
+  btn.textContent = "Import these";
+  $("notesPreview").innerHTML =
+    '<div class="empty">Imported ' + ok + " of " + keep.length + ". They are in your log now.</div>";
+  $("notesRaw").value = "";
+  loadRecent();
 }
 
 /* ---- adding one ----
