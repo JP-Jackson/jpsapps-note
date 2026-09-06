@@ -9,14 +9,20 @@ Phase 1 code is complete and **deployed**. The Cloudflare resources exist.
 
 | Thing | Value |
 |---|---|
-| Worker | `https://note.jpsapps.workers.dev` |
+| Worker | `https://note.jpsapps.com` (custom domain) |
 | D1 database | `note` — `416aa6a6-0c76-4f21-88eb-56a73c3d25bc` (ENAM) |
 | R2 bucket | `note-photos` |
 | Account | jpsappshq@gmail.com — `bf9f771dae485c448a5740c54ca5771d` |
 
-Verified live: `/api/health` → `{ok:true, tables:14}` (11 app tables + `d1_migrations`
-+ two `_cf_*` internals; remote reports more than local's 12). `/api/me` → 401 with no
-token, 403 with a junk token. Static shell → 200.
+Verified live on workers.dev before the custom domain was added: `/api/health` →
+`{ok:true, tables:14}` (11 app tables + `d1_migrations` + two `_cf_*` internals; remote
+reports more than local's 12). `/api/me` → 401 with no token, 403 with a junk token.
+Static shell → 200.
+
+**Not verified on `note.jpsapps.com`.** The build sandbox's egress proxy allowlists
+`workers.dev` and `api.cloudflare.com` but not `jpsapps.com`, so the hostname cannot be
+reached from there at all — and adding the route retired the workers.dev URL that could
+be. The Cloudflare API confirms the domain is configured; the browser check is JP's.
 
 `NOTE_SPEC.md` is the authority. Where it states a decision and a reason, follow it
 rather than substituting a different approach. Build **phase 1 only** — no capture
@@ -91,9 +97,27 @@ bootstrap, and the rest follows from it.
 - **Zero Trust team name** — blocks the Access application
 - Access application on `note.jpsapps.com`, login method **Cloudflare IdP** + one-time
   PIN fallback, policy allowing `jpsappshq@gmail.com`, session duration 1 month
-- Copy the **AUD tag** into `ACCESS_AUD`, team domain into `ACCESS_TEAM_DOMAIN`
-- Uncomment the `routes` block in `wrangler.jsonc`, redeploy
+- Copy the **AUD tag** into `ACCESS_AUD`, team domain into `ACCESS_TEAM_DOMAIN`, redeploy
 - Bind `img.jpsapps.com` to the `note-photos` bucket in the R2 dashboard
+
+Team name chosen: **`jpsapps`** → `jpsapps.cloudflareaccess.com`.
+
+The `Note-JpsApps` token has **no Zero Trust or SSL permission** (`Authentication
+error` on `/access/organizations`, `9109` on certificate packs). The Access work is
+dashboard-only unless the token is widened.
+
+## note.jpsapps.com
+
+Created as a Worker **custom domain**, not a hand-made DNS record — Cloudflare owns the
+AAAA record and the certificate. Confirmed via the API: hostname registered against
+service `note`, `enabled: true`, cert issued.
+
+Adding the route **disabled the workers.dev URL** (wrangler's default once a route
+exists), which is the right end state — one door, not two. Worth knowing it is not a
+security necessity: `auth.ts` verifies the Access JWT signature itself rather than
+trusting a header, precisely because the Worker is reachable off-Access, so a
+workers.dev URL would return 401 rather than bypass anything. It is available as a
+debugging fallback via `"workers_dev": true` if the custom domain ever misbehaves.
 
 Until `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` are set, the Worker is deployed but closed:
 every `/api/*` call except `/api/health` is refused. That is the correct state, not a

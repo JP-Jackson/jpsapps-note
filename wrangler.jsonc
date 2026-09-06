@@ -5,10 +5,9 @@
   "compatibility_date": "2026-09-06",
   "observability": { "enabled": true },
 
-  // note.jpsapps.com is bound after the zone is live in the jpsappshq account.
-  // Uncomment once DNS is confirmed; until then `wrangler deploy` publishes to
-  // the workers.dev subdomain, which is enough to prove the Worker runs.
-  // "routes": [{ "pattern": "note.jpsapps.com", "custom_domain": true }],
+  // Custom domain: Cloudflare creates the DNS record and certificate itself, so
+  // there is no hand-made record for note.jpsapps.com anywhere.
+  "routes": [{ "pattern": "note.jpsapps.com", "custom_domain": true }],
 
   "assets": { "directory": "public", "binding": "ASSETS" },
 
