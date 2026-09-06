@@ -9,7 +9,8 @@ Phase 1 code is complete and **deployed**. The Cloudflare resources exist.
 
 | Thing | Value |
 |---|---|
-| Worker | `https://note.jpsapps.com` (custom domain) |
+| Worker | `https://note.jpsapps.com` (custom domain, **not resolving yet**) |
+| Worker (fallback) | `https://note.jpsapps.workers.dev` — live and verified |
 | D1 database | `note` — `416aa6a6-0c76-4f21-88eb-56a73c3d25bc` (ENAM) |
 | R2 bucket | `note-photos` |
 | Account | jpsappshq@gmail.com — `bf9f771dae485c448a5740c54ca5771d` |
@@ -112,12 +113,46 @@ Created as a Worker **custom domain**, not a hand-made DNS record — Cloudflare
 AAAA record and the certificate. Confirmed via the API: hostname registered against
 service `note`, `enabled: true`, cert issued.
 
-Adding the route **disabled the workers.dev URL** (wrangler's default once a route
-exists), which is the right end state — one door, not two. Worth knowing it is not a
-security necessity: `auth.ts` verifies the Access JWT signature itself rather than
-trusting a header, precisely because the Worker is reachable off-Access, so a
-workers.dev URL would return 401 rather than bypass anything. It is available as a
-debugging fallback via `"workers_dev": true` if the custom domain ever misbehaves.
+Adding the route disabled the workers.dev URL (wrangler's default once a route exists).
+It has been **re-enabled** via `"workers_dev": true` because the hostname does not
+resolve yet — see below. Not an Access bypass: `auth.ts` verifies the Access JWT
+signature itself rather than trusting a header, precisely because the Worker is
+reachable off-Access, so an off-Access hostname returns 401 rather than letting anyone
+through. **Turn it off once `note.jpsapps.com` resolves and Access is live.**
+
+### note.jpsapps.com does not resolve — DNS delegation, not config
+
+`ERR_NAME_NOT_RESOLVED` in the browser. The Cloudflare side is confirmed correct: the
+record is `AAAA → 100::`, proxied, auto TTL — the textbook Workers custom domain — and
+the dashboard shows it as a Worker record under a Full DNS setup.
+
+The diagnostic was `footballplays.jpsapps.com`, which does not resolve either:
+
+- Hitting the **new** nameservers → `note` resolves, `footballplays` does not (lost in the move)
+- Hitting the **old** ones → `footballplays` resolves, `note` does not
+- **Neither resolves** → nothing under `jpsapps.com` is served at all ← this is the case
+
+So the `.com` registry is almost certainly still delegating to `osmar`/`raphaela` (the
+old ftmtit51 account's pair) while the zone now lives on `byron`/`cortney`. Cloudflare
+marked the zone active at 18:00:41 UTC on 6 Sep, but for a Registrar domain that
+reflects the account move, not global propagation.
+
+Decisive test, bypassing every cache:
+
+```
+nslookup -type=ns jpsapps.com a.gtld-servers.net
+```
+
+- **byron/cortney** → delegation is right, just propagating. `.com` NS carries a 48h
+  TTL, so a resolver holding the old pair keeps it. Wait.
+- **osmar/raphaela** → the registry was never updated. A Cloudflare Registrar problem,
+  needing support; the `Note-JpsApps` token has no registrar permission either
+  (`Authentication error` on `/registrar/domains`).
+
+This is fallout from the 6 Sep inter-account transfer, not from the phase 1 build.
+
+**Get DNS resolving before creating the Access application** — Access validates against
+the hostname, so building it first risks a second failure that is really this one.
 
 Until `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` are set, the Worker is deployed but closed:
 every `/api/*` call except `/api/health` is refused. That is the correct state, not a

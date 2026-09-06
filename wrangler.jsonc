@@ -9,6 +9,13 @@
   // there is no hand-made record for note.jpsapps.com anywhere.
   "routes": [{ "pattern": "note.jpsapps.com", "custom_domain": true }],
 
+  // Kept on deliberately, as a second door while the jpsapps.com delegation
+  // propagates after the inter-account transfer. Not an Access bypass: auth.ts
+  // verifies the Access JWT signature itself rather than trusting a header, so an
+  // off-Access hostname returns 401 rather than letting anyone through. Turn this
+  // off once note.jpsapps.com resolves and Access is live.
+  "workers_dev": true,
+
   "assets": { "directory": "public", "binding": "ASSETS" },
 
   "d1_databases": [
