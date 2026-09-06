@@ -227,7 +227,7 @@ async function callTool(db: Db, name: string, args: Json): Promise<{ content: un
       const name = String(args.name ?? "").trim();
       const context = String(args.context ?? "").trim();
       if (!name || !context) return problem("A thing needs a name and a context.");
-      const id = await db.createSubject({
+      const made = await db.createSubject({
         name,
         type: String(args.type ?? "generic"),
         context,
@@ -238,8 +238,13 @@ async function callTool(db: Db, name: string, args: Json): Promise<{ content: un
         value: value == null ? null : String(value),
         sort_order: i,
       }));
-      if (list.length) await db.setAttributes(id, list);
-      return text(`Added "${name}" (${args.type ?? "generic"}, ${context})${list.length ? ` with ${list.length} field${list.length === 1 ? "" : "s"}` : ""}.`);
+      if (list.length) await db.setAttributes(made.id, list);
+      // Reported from what was stored, not what was asked for — the two differ
+      // whenever a context or type was normalised on the way in.
+      return text(
+        `Added "${name}" (${made.type}, ${made.context})` +
+          `${list.length ? ` with ${list.length} field${list.length === 1 ? "" : "s"}` : ""}.`,
+      );
     }
 
     case "add_note": {

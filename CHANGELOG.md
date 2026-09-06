@@ -3,6 +3,12 @@
 Mirrors the list shown in Settings. One line per release — enough to answer
 "did the thing I asked for actually ship", not full release notes.
 
+## 1.9.1
+A thing's context and type are normalised and checked before they are stored. The
+bulk importer took free text, so "vehicle " reached the database and produced a
+thing that could never be attached to a capture. Route errors now answer with their
+own status instead of a bare 500.
+
 ## 1.9.0
 Note connects to Claude over MCP. Seven tools: search the log, read a day, list
 open items, read a thing's whole history, add a thing, add a note. `/mcp` sits

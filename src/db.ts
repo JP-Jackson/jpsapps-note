@@ -190,6 +190,46 @@ export interface ConnectionRow {
   expires_at: number;
 }
 
+/**
+ * The three contexts, and the tolerance around them.
+ *
+ * Context is a hard filter everywhere it appears — capture chips only offer things in
+ * the context you are standing in — so a subject stored as "vehicle " can never be
+ * attached to anything and looks, from the app, simply broken. Free text reaches this
+ * from the bulk importer, so it is normalised here rather than trusted.
+ *
+ * The singular forms are accepted because typing "vehicle" for a truck is a slip, not
+ * a different intent. Anything beyond that is rejected: guessing further would trade
+ * a visible error for a thing that quietly never works.
+ */
+const CONTEXTS = ["work", "home", "vehicles"] as const;
+const CONTEXT_ALIASES: Record<string, string> = { vehicle: "vehicles" };
+
+export class BadContext extends Error {
+  constructor(readonly given: string) {
+    super(`"${given}" is not a context. Use work, home or vehicles.`);
+  }
+}
+
+function normaliseContext(raw: string): string {
+  const v = raw.trim().toLowerCase();
+  const mapped = CONTEXT_ALIASES[v] ?? v;
+  if (!(CONTEXTS as readonly string[]).includes(mapped)) throw new BadContext(raw);
+  return mapped;
+}
+
+/**
+ * Type only decides which fields a new thing is asked for, so an unrecognised one
+ * costs nothing but a blank template — "zero turn mower" is a real answer to the
+ * wrong question. Fold it to generic, which holds any field anyway (§4).
+ */
+const TYPES = ["equipment", "vehicle", "generic"] as const;
+
+function normaliseType(raw: string): string {
+  const v = raw.trim().toLowerCase();
+  return (TYPES as readonly string[]).includes(v) ? v : "generic";
+}
+
 export class Db {
   private readonly d1: D1Database;
   readonly userId: string;
@@ -733,17 +773,22 @@ export class Db {
     );
   }
 
-  async createSubject(sub: NewSubject): Promise<string> {
+  /** Returns the normalised row, not just its id: what was asked for and what was
+   *  stored can differ, and a caller that reports the request back is reporting a
+   *  value the database does not hold. */
+  async createSubject(sub: NewSubject): Promise<{ id: string; type: string; context: string }> {
     const id = newId();
+    const context = normaliseContext(sub.context);
+    const type = normaliseType(sub.type);
     await this.run(
       this.d1
         .prepare(
           `INSERT INTO subjects (id, user_id, name, type, context, visibility, created_at)
            VALUES (?, ?, ?, ?, ?, 'private', ?)`,
         )
-        .bind(id, this.userId, sub.name, sub.type, sub.context, Date.now()),
+        .bind(id, this.userId, sub.name.trim(), type, context, Date.now()),
     );
-    return id;
+    return { id, type, context };
   }
 
   /**
@@ -843,7 +888,8 @@ export class Db {
     for (const [k, v] of Object.entries(patch)) {
       if (v === undefined) continue;
       sets.push(`${k} = ?`);
-      vals.push(v);
+      // Same rule on the way in through an edit as on the way in through creation.
+      vals.push(k === "context" && typeof v === "string" ? normaliseContext(v) : v);
     }
     if (!sets.length) return;
     await this.run(

@@ -13,7 +13,7 @@
 
 import { Hono } from "hono";
 import type { Env } from "./env";
-import { Db, VersionConflict } from "./db";
+import { BadContext, Db, VersionConflict } from "./db";
 import { photoKey } from "./ids";
 import { VERSION } from "./version";
 import { authenticate, AuthError, type Session } from "./auth";
@@ -74,23 +74,36 @@ app.get("/api/health", async (c) => {
  * so a query cannot be written that forgets to scope to the current user.
  */
 app.use("/api/*", async (c, next) => {
-  try {
-    const session = await authenticate(c.req.raw, c.env);
-    const db = new Db(c.env.DB, session.userId);
-    // The auth lookup ran before this Db existed; count it here so the busiest
-    // query on the app is not invisible to the meter.
-    db.absorb(session.cost);
-    c.set("session", session);
-    c.set("db", db);
+  const session = await authenticate(c.req.raw, c.env);
+  const db = new Db(c.env.DB, session.userId);
+  // The auth lookup ran before this Db existed; count it here so the busiest
+  // query on the app is not invisible to the meter.
+  db.absorb(session.cost);
+  c.set("session", session);
+  c.set("db", db);
 
-    await next();
+  await next();
 
-    // One usage write per request, after the response is settled.
-    c.executionCtx.waitUntil(db.flushUsage());
-  } catch (err) {
-    if (err instanceof AuthError) return c.json({ error: err.message }, err.status);
-    throw err;
-  }
+  // One usage write per request, after the response is settled. Runs even if the
+  // handler threw: the queries it made still cost what they cost.
+  c.executionCtx.waitUntil(db.flushUsage());
+});
+
+/**
+ * The one place a thrown error becomes a response.
+ *
+ * Not a try/catch around `next()`, which is the obvious-looking version and does not
+ * work: Hono does not re-throw a handler's error into the middleware awaiting it, it
+ * stores the error on the context and unwinds. A catch there sees only what the
+ * middleware itself threw, so route errors were arriving as bare 500s.
+ */
+app.onError((err, c) => {
+  if (err instanceof AuthError) return c.json({ error: err.message }, err.status);
+  // Caller's mistake, not a fault — and answered the same way whichever route,
+  // import row or MCP tool set it.
+  if (err instanceof BadContext) return c.json({ error: err.message }, 400);
+  console.error(err);
+  return c.json({ error: "Something went wrong" }, 500);
 });
 
 app.get("/api/me", async (c) => {
@@ -360,7 +373,7 @@ app.post("/api/subjects", async (c) => {
   if (!context) return c.json({ error: "context is required" }, 400);
 
   const db = c.get("db");
-  const id = await db.createSubject({ name, type, context });
+  const { id } = await db.createSubject({ name, type, context });
   if (Array.isArray(body.attributes)) {
     await db.setAttributes(id, body.attributes as never);
   }
@@ -401,7 +414,7 @@ app.post("/api/subjects/import", async (c) => {
       continue;
     }
     try {
-      const id = await db.createSubject({
+      const { id } = await db.createSubject({
         name,
         type: typeof item.type === "string" ? item.type : "generic",
         context,
