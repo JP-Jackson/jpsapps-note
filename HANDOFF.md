@@ -9,8 +9,8 @@ Phase 1 code is complete and **deployed**. The Cloudflare resources exist.
 
 | Thing | Value |
 |---|---|
-| Worker | `https://note.jpsapps.com` (custom domain, **not resolving yet**) |
-| Worker (fallback) | `https://note.jpsapps.workers.dev` — live and verified |
+| Worker | `https://note.jpsapps.com` (custom domain) — **live** |
+| Worker (fallback) | `https://note.jpsapps.workers.dev` — live; retire once Access is up |
 | D1 database | `note` — `416aa6a6-0c76-4f21-88eb-56a73c3d25bc` (ENAM) |
 | R2 bucket | `note-photos` |
 | Account | jpsappshq@gmail.com — `bf9f771dae485c448a5740c54ca5771d` |
@@ -120,47 +120,22 @@ signature itself rather than trusting a header, precisely because the Worker is
 reachable off-Access, so an off-Access hostname returns 401 rather than letting anyone
 through. **Turn it off once `note.jpsapps.com` resolves and Access is live.**
 
-### note.jpsapps.com does not resolve — DNS delegation, not config
+### note.jpsapps.com — resolved
 
-`ERR_NAME_NOT_RESOLVED` in the browser. The Cloudflare side is confirmed correct: the
-record is `AAAA → 100::`, proxied, auto TTL — the textbook Workers custom domain — and
-the dashboard shows it as a Worker record under a Full DNS setup.
+It resolved a short while after the record was created; the delay was propagation of
+the `.com` delegation from the old account's nameservers (`osmar`/`raphaela`) to this
+account's (`byron`/`cortney`) following the 6 Sep inter-account transfer. Nothing was
+misconfigured. Confirmed serving in a browser: the shell renders with `DATABASE OK ·
+14 tables`, `ENV production`, `ACCESS NOT SET`, `SIGNED IN: No Access token on request`.
 
-The diagnostic was `footballplays.jpsapps.com`, which does not resolve either:
+The page first loaded over plain HTTP ("Not secure"). The certificate was not the
+problem — `settings/ssl` reported `certificate_status: active`, SSL mode `full` — the
+zone simply had `always_use_https` **off** after the transfer wiped its config. Now
+turned **on**, so HTTP redirects to HTTPS.
 
-- Hitting the **new** nameservers → `note` resolves, `footballplays` does not (lost in the move)
-- Hitting the **old** ones → `footballplays` resolves, `note` does not
-- **Neither resolves** → nothing under `jpsapps.com` is served at all ← this is the case
-
-So the `.com` registry is almost certainly still delegating to `osmar`/`raphaela` (the
-old ftmtit51 account's pair) while the zone now lives on `byron`/`cortney`. Cloudflare
-marked the zone active at 18:00:41 UTC on 6 Sep, but for a Registrar domain that
-reflects the account move, not global propagation.
-
-Decisive test, bypassing every cache:
-
-```
-nslookup -type=ns jpsapps.com a.gtld-servers.net
-```
-
-- **byron/cortney** → delegation is right, just propagating. `.com` NS carries a 48h
-  TTL, so a resolver holding the old pair keeps it. Wait.
-- **osmar/raphaela** → the registry was never updated. A Cloudflare Registrar problem,
-  needing support; the `Note-JpsApps` token has no registrar permission either
-  (`Authentication error` on `/registrar/domains`).
-
-This is fallout from the 6 Sep inter-account transfer, not from the phase 1 build.
-
-**Get DNS resolving before creating the Access application** — Access validates against
-the hostname, so building it first risks a second failure that is really this one.
-
-Until `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` are set, the Worker is deployed but closed:
-every `/api/*` call except `/api/health` is refused. That is the correct state, not a
-half-finished one — the Worker is reachable on workers.dev and must not trust an
-unverified header.
-
-Phase 1 is done when: the Worker deploys, the D1 tables exist and are queryable with
-wrangler, the R2 bucket exists, and JP can log in. **Only the last is outstanding.**
+That mattered more than the padlock: Access issues the `CF_Authorization` cookie, and
+over plain HTTP it would travel in the clear. Treat the redirect as a prerequisite of
+the Access step, not cosmetics.
 
 ## Spec issues found — decided, not open
 
