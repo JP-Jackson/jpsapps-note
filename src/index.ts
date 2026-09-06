@@ -18,6 +18,15 @@ import { VERSION } from "./version";
 import { authenticate, AuthError, type Session } from "./auth";
 
 type Vars = { session: Session; db: Db };
+
+/** Great-circle distance in metres. Good to a few metres at these ranges. */
+function haversine(aLat: number, aLng: number, bLat: number, bLng: number): number {
+  const R = 6_371_000, rad = Math.PI / 180;
+  const dLat = (bLat - aLat) * rad, dLng = (bLng - aLng) * rad;
+  const h = Math.sin(dLat / 2) ** 2 +
+    Math.cos(aLat * rad) * Math.cos(bLat * rad) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
 const app = new Hono<{ Bindings: Env; Variables: Vars }>();
 
 /** Liveness + schema probe. No auth: it must answer before login works. */
@@ -103,6 +112,7 @@ app.post("/api/entries", async (c) => {
     lat: num(e.lat),
     lng: num(e.lng),
     is_open: e.is_open === true,
+    place_id: typeof e.place_id === "string" ? e.place_id : null,
   });
 
   // §4: one capture can touch a site, a panel and the device on it, so this is a
@@ -251,6 +261,52 @@ app.post("/api/photos", async (c) => {
   });
 
   return c.json({ id, key, url: `${c.env.IMG_BASE}/${key}` }, 201);
+});
+
+/* --------------------------------------------------------------------- places */
+
+/** Named places, each with the context most often used there. */
+app.get("/api/places", async (c) => {
+  return c.json({ places: await c.get("db").listPlaces() });
+});
+
+/**
+ * Is this spot worth naming yet?
+ *
+ * §4: offer after the second or third capture at an unnamed spot. Returns how many
+ * past captures are nearby so the client can decide whether to ask — asking on the
+ * first visit to every customer site would be noise.
+ */
+app.get("/api/places/nearby", async (c) => {
+  const lat = Number(c.req.query("lat"));
+  const lng = Number(c.req.query("lng"));
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return c.json({ error: "lat and lng are required" }, 400);
+  }
+  const near = await c.get("db").unnamedNearby(lat, lng);
+  const within = near.filter((p) => haversine(lat, lng, p.lat, p.lng) <= 150);
+  return c.json({ unnamedVisits: within.length });
+});
+
+app.post("/api/places", async (c) => {
+  let body: Record<string, unknown>;
+  try {
+    body = (await c.req.json()) as Record<string, unknown>;
+  } catch {
+    return c.json({ error: "Body must be JSON" }, 400);
+  }
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  const lat = Number(body.lat), lng = Number(body.lng);
+  if (!name) return c.json({ error: "name is required" }, 400);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return c.json({ error: "lat and lng are required" }, 400);
+  }
+  const db = c.get("db");
+  const id = await db.createPlace(name, lat, lng, Number(body.radius_m) || 150);
+  // Past captures made here belong to it — naming a place should explain history,
+  // not just label the future.
+  const claimed = await db.claimEntriesForPlace(id, lat, lng);
+  return c.json({ id, claimed }, 201);
 });
 
 /* ------------------------------------------------------------------- subjects */

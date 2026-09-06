@@ -41,6 +41,7 @@ export interface NewEntry {
   lat: number | null;
   lng: number | null;
   is_open: boolean;
+  place_id?: string | null;
 }
 
 export interface EntryRow {
@@ -118,6 +119,15 @@ export interface SubjectDetail extends SubjectRow {
   attributes: AttributeRow[];
   entries: EntryRow[];
   attachments: AttachmentRow[];
+}
+
+export interface PlaceRow {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+  radius_m: number;
+  context: string | null;
 }
 
 export interface NewSubject {
@@ -296,8 +306,8 @@ export class Db {
     const res = await this.d1
       .prepare(
         `INSERT INTO entries
-           (id, user_id, created_at, synced_at, context, body, body_raw, lat, lng, is_open)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           (id, user_id, created_at, synced_at, context, body, body_raw, lat, lng, is_open, place_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (id) DO NOTHING`,
       )
       .bind(
@@ -311,6 +321,7 @@ export class Db {
         e.lat,
         e.lng,
         e.is_open ? 1 : 0,
+        e.place_id ?? null,
       )
       .run();
     readMeta(this.meter, res.meta);
@@ -519,6 +530,80 @@ export class Db {
         .bind(id, this.userId, a.entry_id, a.kind, a.r2_key, a.mime, a.bytes, Date.now()),
     );
     return id;
+  }
+
+  // ------------------------------------------------------------------- places
+  // §4: raw coordinates are stored on every entry regardless. Places are a
+  // convenience laid over them — matched by proximity, suggested, never forced.
+
+  async listPlaces(): Promise<PlaceRow[]> {
+    return this.all<PlaceRow>(
+      this.d1
+        .prepare(
+          `SELECT p.id, p.name, p.lat, p.lng, p.radius_m,
+                  (SELECT e.context FROM entries e
+                    WHERE e.place_id = p.id AND e.user_id = p.user_id
+                    GROUP BY e.context ORDER BY COUNT(*) DESC LIMIT 1) AS context
+             FROM places p
+            WHERE p.user_id = ?
+            ORDER BY p.name COLLATE NOCASE`,
+        )
+        .bind(this.userId),
+    );
+  }
+
+  async createPlace(name: string, lat: number, lng: number, radiusM = 150): Promise<string> {
+    const id = newId();
+    await this.run(
+      this.d1
+        .prepare(
+          `INSERT INTO places (id, user_id, name, lat, lng, radius_m, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(id, this.userId, name, lat, lng, radiusM, Date.now()),
+    );
+    return id;
+  }
+
+  /**
+   * How many past captures sit near here with no place named yet.
+   *
+   * §4: "after the second or third capture at an unnamed spot, offer to name it."
+   * That is the whole mechanism — the app learns your places from where you actually
+   * work rather than asking you to enter them up front.
+   *
+   * Filtered to a crude lat/lng box first so the scan stays cheap, then measured
+   * properly in the caller. A degree of latitude is ~111km everywhere; longitude
+   * narrows with latitude, but the box only has to be generous, not exact.
+   */
+  async unnamedNearby(lat: number, lng: number, metres = 150): Promise<{ lat: number; lng: number }[]> {
+    const d = (metres * 2) / 111_000;
+    return this.all<{ lat: number; lng: number }>(
+      this.d1
+        .prepare(
+          `SELECT lat, lng FROM entries
+            WHERE user_id = ? AND place_id IS NULL AND deleted_at IS NULL
+              AND lat IS NOT NULL
+              AND lat BETWEEN ? AND ? AND lng BETWEEN ? AND ?
+            LIMIT 50`,
+        )
+        .bind(this.userId, lat - d, lat + d, lng - d * 4, lng + d * 4),
+    );
+  }
+
+  /** Attach captures made at this spot to a newly named place. */
+  async claimEntriesForPlace(placeId: string, lat: number, lng: number, metres = 150): Promise<number> {
+    const d = (metres * 2) / 111_000;
+    const res = await this.d1
+      .prepare(
+        `UPDATE entries SET place_id = ?
+          WHERE user_id = ? AND place_id IS NULL AND deleted_at IS NULL
+            AND lat BETWEEN ? AND ? AND lng BETWEEN ? AND ?`,
+      )
+      .bind(placeId, this.userId, lat - d, lat + d, lng - d * 4, lng + d * 4)
+      .run();
+    readMeta(this.meter, res.meta);
+    return res.meta?.changes ?? 0;
   }
 
   // ----------------------------------------------------------------- subjects

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#16222E">
-<meta name="app-version" content="1.5.0">
+<meta name="app-version" content="1.6.0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Note">
@@ -150,7 +150,8 @@
      pair that identifies. */
   header .meta-r{margin-left:auto;display:flex;flex-direction:column;
     align-items:flex-end;gap:5px;min-width:0}
-  #status{display:flex;align-items:center;gap:6px;
+  #status{display:flex;align-items:center;gap:6px;border:0;background:none;
+    cursor:pointer;padding:2px 0;
     font:500 11px/1 var(--font-mono);letter-spacing:.08em;
     color:#cfd8e0;text-transform:uppercase}
   #dot{width:9px;height:9px;border-radius:50%;background:var(--ok);flex:none}
@@ -275,6 +276,45 @@
     font-family:var(--font-mono);text-transform:uppercase;letter-spacing:.08em}
   .actions{display:flex;gap:8px;margin-top:14px}
   .actions .btn{flex:1}
+
+  /* ---------- capture thumb zone ---------- */
+  #thumb{position:fixed;left:0;right:0;bottom:var(--nav-h);z-index:25;
+    background:var(--bg);border-top:1px solid var(--line);
+    padding:10px 14px calc(10px + env(safe-area-inset-bottom) * 0);
+    max-width:560px;margin:0 auto}
+  #thumb .chips{margin-bottom:8px}
+  .doit{display:flex;gap:8px;align-items:stretch}
+  .doit .btn{flex:1;padding:18px 16px}
+  /* Square secondary actions sit left of Save so the thumb passes over them on the
+     way to it, rather than having to stretch past it. */
+  .sq{width:58px;flex:none;border-radius:12px;border:1px solid var(--line);
+    background:var(--card);color:var(--ink-2);cursor:pointer;
+    box-shadow:0 var(--press) 0 var(--line);display:flex;align-items:center;
+    justify-content:center;transition:transform .06s,box-shadow .06s}
+  .sq:active{transform:translateY(var(--press));box-shadow:0 0 0 var(--line)}
+  .sq svg{width:23px;height:23px}
+  .sq[aria-pressed="true"]{background:var(--warn);border-color:var(--warn);color:#16222E;
+    box-shadow:0 var(--press) 0 #00000030}
+  .sq.on{background:var(--blue);border-color:var(--blue);color:#fff;
+    box-shadow:0 var(--press) 0 var(--blue-deep)}
+  /* A suggestion, never a decision (§4) — tap to accept, ignore to skip. */
+  .place{width:100%;border:1px dashed var(--line);background:transparent;
+    color:var(--ink-2);border-radius:10px;padding:9px 12px;margin-bottom:8px;
+    font:500 13px var(--font-ui);cursor:pointer;text-align:left}
+  .place strong{color:var(--ink);font-weight:700}
+  .place[aria-pressed="true"]{border-style:solid;border-color:var(--blue);color:var(--ink)}
+  /* The capture screen scrolls under the thumb zone, so leave room for it. */
+  body.capturing main{padding-bottom:calc(var(--nav-h) + 190px)}
+
+  /* ---------- version history ---------- */
+  .rel{border-left:2px solid var(--line);padding:0 0 12px 14px;margin-left:4px;position:relative}
+  .rel:last-child{padding-bottom:0}
+  .rel::before{content:"";position:absolute;left:-5px;top:4px;width:8px;height:8px;
+    border-radius:50%;background:var(--line)}
+  .rel.now::before{background:var(--blue)}
+  .rel .v{font:500 11px/1.4 var(--font-mono);color:var(--ink-2);letter-spacing:.04em}
+  .rel.now .v{color:var(--blue)}
+  .rel .w{font-size:14px;line-height:1.4}
 
   /* ---------- subjects ---------- */
   #subject{position:fixed;inset:0;z-index:40;background:var(--bg);overflow-y:auto;padding:0 0 40px}
@@ -434,7 +474,7 @@
   </svg>
   <span class="name">Note</span><span id="ver">—</span>
   <span class="meta-r">
-    <span id="status"><span id="dot"></span><span id="statusText">SYNCED</span></span>
+    <button id="status" title="Tap to sync"><span id="dot"></span><span id="statusText">SYNCED</span></button>
     <span class="host">jpsapps.com</span>
   </span>
   <button id="gear" aria-label="Settings">
@@ -452,6 +492,9 @@
 
   <!-- ============ CAPTURE ============ -->
   <section id="view-capture">
+    <!-- Reachable order, not reading order. A phone is held low and worked with the
+         thumb, so what you touch most often sits nearest the bottom right and what
+         you only look at sits up top (§10: glove-friendly, large targets). -->
     <div class="shot" id="shot">
       <video id="video" playsinline muted></video>
       <img id="preview" alt="" hidden>
@@ -459,26 +502,9 @@
       <button class="retake" id="retake" hidden>Retake</button>
     </div>
 
-    <button class="btn ghost" id="camBtn" style="margin-bottom:12px">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-           stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-           style="vertical-align:-4px;margin-right:8px">
-        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
-        <circle cx="12" cy="13" r="4"/>
-      </svg>Add photo</button>
     <input type="file" id="filePick" accept="image/*" capture="environment" hidden>
 
     <textarea id="body" placeholder="What happened? (tap the mic on your keyboard to dictate)"></textarea>
-
-    <div class="chips" id="chips">
-      <button class="chip" data-ctx="work"     aria-pressed="true">Work</button>
-      <button class="chip" data-ctx="home"     aria-pressed="false">Home</button>
-      <button class="chip" data-ctx="vehicles" aria-pressed="false">Vehicles</button>
-    </div>
-
-    <div class="chips" id="subjChips" hidden></div>
-    <label class="row"><input type="checkbox" id="isOpen"> Needs follow-up</label>
-    <button class="btn" id="save">Save</button>
 
     <h2>Just captured</h2>
     <div id="log"><div class="empty">Nothing yet.</div></div>
@@ -581,6 +607,30 @@
 
     <h2>Build</h2>
     <dl class="meta" id="buildInfo"><dt>page</dt><dd>—</dd></dl>
+    <h2>What changed</h2>
+    <div id="history"></div>
+  </div>
+</div>
+
+<!-- Everything you touch to finish a capture, in the bottom third where the thumb
+     actually reaches. Save is furthest right because it is the most-used control and
+     this is a right-handed phone. -->
+<div id="thumb" hidden>
+  <button id="placeChip" class="place" hidden></button>
+  <div class="chips" id="chips">
+    <button class="chip" data-ctx="work"     aria-pressed="true">Work</button>
+    <button class="chip" data-ctx="home"     aria-pressed="false">Home</button>
+    <button class="chip" data-ctx="vehicles" aria-pressed="false">Vehicles</button>
+  </div>
+  <div class="chips" id="subjChips" hidden></div>
+  <div class="doit">
+    <button id="flagBtn" class="sq" aria-pressed="false" title="Needs follow-up">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4h13l-2 4 2 4H5"/></svg>
+    </button>
+    <button id="camBtn" class="sq" title="Add photo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+    </button>
+    <button class="btn" id="save">Save</button>
   </div>
 </div>
 
@@ -763,7 +813,7 @@ $("filePick").addEventListener("change", async (e) => {
   $("preview").hidden = false;
   $("shutter").hidden = true;
   $("retake").hidden = false;
-  $("camBtn").hidden = true;
+  $("camBtn").classList.add("on");
 });
 
 function clearPhoto() {
@@ -771,7 +821,7 @@ function clearPhoto() {
   photoBlob = null;
   $("shot").classList.remove("on");
   $("preview").removeAttribute("src");
-  $("camBtn").hidden = false;
+  $("camBtn").classList.remove("on");
 }
 
 $("camBtn").addEventListener("click", openCamera);
@@ -795,6 +845,119 @@ $("chips").addEventListener("click", (e) => {
   paintSubjectChips();
 });
 paintChips();
+
+/* ---- follow-up flag ----
+   A checkbox is a small target and reads as a form field. This is a real control in
+   the thumb zone that stays lit while set. */
+let flagged = false;
+$("flagBtn").addEventListener("click", () => {
+  flagged = !flagged;
+  $("flagBtn").setAttribute("aria-pressed", String(flagged));
+});
+
+/* ---- places (§4) ----
+   Coordinates are stored on every capture regardless. A named place is matched by
+   proximity and offered; you accept it or ignore it. Nothing is ever forced, and the
+   app is never blocked waiting for a fix. Places are cached so matching still works
+   with no signal — the whole point is that this survives a dead zone. */
+let places = [];
+let herePlace = null, hereCoords = null, placeAccepted = false;
+
+function metresBetween(aLat, aLng, bLat, bLng) {
+  const R = 6371000, rad = Math.PI / 180;
+  const dLat = (bLat - aLat) * rad, dLng = (bLng - aLng) * rad;
+  const h = Math.sin(dLat / 2) ** 2 +
+    Math.cos(aLat * rad) * Math.cos(bLat * rad) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+async function loadPlaces() {
+  try {
+    const r = await fetch("/api/places");
+    if (r.ok) {
+      places = (await r.json()).places || [];
+      try { localStorage.setItem("note.places", JSON.stringify(places)); } catch {}
+    }
+  } catch {
+    try { places = JSON.parse(localStorage.getItem("note.places") || "[]"); } catch { places = []; }
+  }
+}
+
+/** A cached fix is fine here: this only drives a suggestion, so a fresh GPS lock
+    would cost battery and a wait for something the user can override anyway. */
+function roughFix() {
+  return new Promise((res) => {
+    if (!navigator.geolocation) return res(null);
+    const t = setTimeout(() => res(null), 4000);
+    navigator.geolocation.getCurrentPosition(
+      (p) => { clearTimeout(t); res({ lat: p.coords.latitude, lng: p.coords.longitude }); },
+      () => { clearTimeout(t); res(null); },
+      { enableHighAccuracy: false, timeout: 4000, maximumAge: 300000 },
+    );
+  });
+}
+
+async function suggestPlace() {
+  const chip = $("placeChip");
+  hereCoords = await roughFix();
+  if (!hereCoords) { chip.hidden = true; return; }
+
+  herePlace = places
+    .map((p) => ({ p, d: metresBetween(hereCoords.lat, hereCoords.lng, p.lat, p.lng) }))
+    .filter((x) => x.d <= (x.p.radius_m || 150))
+    .sort((a, b) => a.d - b.d)[0]?.p || null;
+
+  if (herePlace) {
+    chip.hidden = false;
+    chip.innerHTML = "At <strong>" + esc(herePlace.name) + "</strong>?";
+    chip.setAttribute("aria-pressed", String(placeAccepted));
+    return;
+  }
+
+  // Unnamed spot: only offer to name it once you have been here before (§4), or
+  // every customer site would prompt on arrival.
+  chip.hidden = true;
+  if (!navigator.onLine) return;
+  try {
+    const r = await fetch(`/api/places/nearby?lat=${hereCoords.lat}&lng=${hereCoords.lng}`);
+    const d = await r.json();
+    if ((d.unnamedVisits || 0) >= 2) {
+      chip.hidden = false;
+      chip.dataset.naming = "1";
+      chip.innerHTML = "You have been here before — <strong>name this place?</strong>";
+    }
+  } catch {}
+}
+
+$("placeChip").addEventListener("click", async () => {
+  const chip = $("placeChip");
+  if (chip.dataset.naming) {
+    const name = prompt("What is this place called?");
+    if (!name || !name.trim() || !hereCoords) return;
+    try {
+      const r = await fetch("/api/places", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: name.trim(), lat: hereCoords.lat, lng: hereCoords.lng }),
+      });
+      const d = await r.json();
+      delete chip.dataset.naming;
+      await loadPlaces();
+      await suggestPlace();
+      if (d.claimed) err("");
+    } catch { err("Could not save that place."); }
+    return;
+  }
+  // Accepting a place adopts the context you usually use there.
+  placeAccepted = !placeAccepted;
+  chip.setAttribute("aria-pressed", String(placeAccepted));
+  if (placeAccepted && herePlace && herePlace.context && herePlace.context !== context) {
+    context = herePlace.context;
+    try { localStorage.setItem(CTX_KEY, context); } catch {}
+    paintChips();
+    pickedSubjects.clear();
+    paintSubjectChips();
+  }
+});
 
 /* ---- subject chips on the capture screen ----
    Optional and zero-tap by default: §1 says capture speed decides whether the habit
@@ -857,14 +1020,16 @@ $("save").addEventListener("click", async () => {
     context,
     body: text || null,
     lat, lng,
-    is_open: $("isOpen").checked,
+    is_open: flagged,
     subject_ids: [...pickedSubjects],
+    place_id: placeAccepted && herePlace ? herePlace.id : null,
     photo: photoBlob || null,
   };
 
   await put(rec);                     // durable BEFORE any network attempt
   $("body").value = "";
-  $("isOpen").checked = false;
+  flagged = false;
+  $("flagBtn").setAttribute("aria-pressed", "false");
   pickedSubjects.clear();
   paintSubjectChips();
   clearPhoto();
@@ -888,6 +1053,7 @@ async function flush() {
           id: rec.id, created_at: rec.created_at, context: rec.context,
           body: rec.body, lat: rec.lat, lng: rec.lng, is_open: rec.is_open,
           subject_ids: rec.subject_ids || [],
+          place_id: rec.place_id || null,
         }),
       });
       // 401/403 means the Access session lapsed. Keep the queue and reload into login;
@@ -916,6 +1082,30 @@ async function flush() {
     loadOpenCount();
   }
 }
+
+/* ---- tapping the indicator ----
+   It already reports sync state, so it is the obvious thing to press when you want
+   to be sure. Flushes the queue, re-checks the build, and reloads when the server
+   has moved on — clearing the cached shell first, or the worker just serves the old
+   one back. */
+$("status").addEventListener("click", async () => {
+  $("statusText").textContent = "CHECKING…";
+  $("status").className = "syncing";
+  await flush();
+  await loadRecent();
+  await loadOpenCount();
+  try {
+    const h = await (await fetch("/api/health", { cache: "no-store" })).json();
+    if (h.version && h.version !== PAGE_VERSION) {
+      if ("caches" in window) for (const k of await caches.keys()) await caches.delete(k);
+      const regs = (await navigator.serviceWorker?.getRegistrations?.()) || [];
+      await Promise.all(regs.map((r) => r.unregister()));
+      location.reload();
+      return;
+    }
+  } catch {}
+  paintStatus();
+});
 
 /* ------------------------------------------------------------------ status */
 async function paintStatus(force) {
@@ -1190,7 +1380,9 @@ function go(next) {
     b.setAttribute("aria-current", String(b.dataset.view === next));
   });
   // Leaving capture with the camera live would hold the sensor open for nothing.
-  if (next !== "capture") { stopCamera(); }
+  $("thumb").hidden = next !== "capture";
+  document.body.classList.toggle("capturing", next === "capture");
+  if (next !== "capture") { stopCamera(); } else { suggestPlace(); }
   refreshCurrentView();
   if (next === "search") $("q").focus();
 }
@@ -1198,6 +1390,26 @@ document.querySelector("nav").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-view]");
   if (b) go(b.dataset.view);
 });
+
+/* ------------------------------------------------------------------ history
+   One line per release, newest first. Kept deliberately short: it exists to answer
+   "did the thing I asked for actually ship", not to be release notes. */
+const RELEASES = [
+  ["1.6.0", "Capture rebuilt for one-handed use; places suggested by location; version history"],
+  ["1.5.0", "Things: details, history, templates and bulk import"],
+  ["1.4.0", "Wordmark in Caveat; the splash writes it"],
+  ["1.3.0", "Header rebuilt; high contrast; Roboto, Ubuntu and Public Sans"],
+  ["1.2.0", "Settings: theme and font pickers, self-hosted fonts"],
+  ["1.1.0", "Log, open items, search, entry detail; version stamping"],
+  ["1.0.0", "Capture screen, offline queue, home-screen app"],
+];
+
+function renderHistory() {
+  $("history").innerHTML = RELEASES.map(([v, what]) =>
+    '<div class="rel' + (v === PAGE_VERSION ? " now" : "") + '">' +
+    '<div class="v">v' + esc(v) + (v === PAGE_VERSION ? " · you are here" : "") + "</div>" +
+    '<div class="w">' + esc(what) + "</div></div>").join("");
+}
 
 /* ------------------------------------------------------------------ subjects
    §4: subjects are "the things" — a truck, a compressor, the AC unit. Attributes
@@ -1499,6 +1711,7 @@ $("gear").addEventListener("click", async () => {
   $("buildInfo").innerHTML =
     "<dt>page</dt><dd>v" + esc(PAGE_VERSION) + "</dd>" +
     "<dt>server</dt><dd>" + esc(server) + "</dd>";
+  renderHistory();
 });
 $("settingsBack").addEventListener("click", () => { $("settings").hidden = true; });
 
@@ -1542,6 +1755,9 @@ setInterval(() => { if (navigator.onLine) flush(); }, 30000);
   loadRecent();
   loadOpenCount();
   loadSubjects();          // also paints the capture screen's subject chips
+  $("thumb").hidden = false;
+  document.body.classList.add("capturing");
+  loadPlaces().then(suggestPlace);
   flush();
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/sw.js").catch(() => {});
