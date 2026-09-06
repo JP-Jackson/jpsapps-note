@@ -1,0 +1,35 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "note",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-06",
+  "observability": { "enabled": true },
+
+  // Custom domain: Cloudflare creates the DNS record and certificate itself, so
+  // there is no hand-made record for note.jpsapps.com anywhere.
+  "routes": [{ "pattern": "note.jpsapps.com", "custom_domain": true }],
+
+  "assets": { "directory": "public", "binding": "ASSETS" },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "note",
+      "database_id": "416aa6a6-0c76-4f21-88eb-56a73c3d25bc",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  "r2_buckets": [{ "binding": "PHOTOS", "bucket_name": "note-photos" }],
+
+  "vars": {
+    "ENVIRONMENT": "production",
+    // Zero Trust team domain, e.g. "jpsapps.cloudflareaccess.com"
+    "ACCESS_TEAM_DOMAIN": "jpsapps.cloudflareaccess.com",
+    // Access application Audience (AUD) tag. Not a secret.
+    "ACCESS_AUD": "38735e0c7b18269f6286deb793610a9947310fc150a047cd676040a0a163b92c",
+    // Only these emails may be auto-provisioned as users. Comma separated.
+    "ALLOWED_EMAILS": "jpsappshq@gmail.com",
+    "IMG_BASE": "https://img.jpsapps.com"
+  }
+}
