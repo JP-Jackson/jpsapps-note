@@ -9,13 +9,6 @@
   // there is no hand-made record for note.jpsapps.com anywhere.
   "routes": [{ "pattern": "note.jpsapps.com", "custom_domain": true }],
 
-  // Kept on deliberately, as a second door while the jpsapps.com delegation
-  // propagates after the inter-account transfer. Not an Access bypass: auth.ts
-  // verifies the Access JWT signature itself rather than trusting a header, so an
-  // off-Access hostname returns 401 rather than letting anyone through. Turn this
-  // off once note.jpsapps.com resolves and Access is live.
-  "workers_dev": true,
-
   "assets": { "directory": "public", "binding": "ASSETS" },
 
   "d1_databases": [
@@ -32,9 +25,9 @@
   "vars": {
     "ENVIRONMENT": "production",
     // Zero Trust team domain, e.g. "jpsapps.cloudflareaccess.com"
-    "ACCESS_TEAM_DOMAIN": "",
+    "ACCESS_TEAM_DOMAIN": "jpsapps.cloudflareaccess.com",
     // Access application Audience (AUD) tag. Not a secret.
-    "ACCESS_AUD": "",
+    "ACCESS_AUD": "38735e0c7b18269f6286deb793610a9947310fc150a047cd676040a0a163b92c",
     // Only these emails may be auto-provisioned as users. Comma separated.
     "ALLOWED_EMAILS": "jpsappshq@gmail.com",
     "IMG_BASE": "https://img.jpsapps.com"

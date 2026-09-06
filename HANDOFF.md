@@ -9,8 +9,10 @@ Phase 1 code is complete and **deployed**. The Cloudflare resources exist.
 
 | Thing | Value |
 |---|---|
-| Worker | `https://note.jpsapps.com` (custom domain) — **live** |
-| Worker (fallback) | `https://note.jpsapps.workers.dev` — live; retire once Access is up |
+| Worker | `https://note.jpsapps.com` (custom domain) — **live, behind Access** |
+| Photos | `https://img.jpsapps.com` → `note-photos` |
+| Zero Trust team | `jpsapps.cloudflareaccess.com` |
+| Access app | `Note` — AUD `38735e0c…163b92c`, session 730h |
 | D1 database | `note` — `416aa6a6-0c76-4f21-88eb-56a73c3d25bc` (ENAM) |
 | R2 bucket | `note-photos` |
 | Account | jpsappshq@gmail.com — `bf9f771dae485c448a5740c54ca5771d` |
@@ -92,20 +94,19 @@ bar ever needs to be exact.
 
 ## What is left
 
-Everything below needs JP — the team name is account onboarding a token cannot
-bootstrap, and the rest follows from it.
+Nothing blocking. Phase 1 is complete pending JP's first login.
 
-- **Zero Trust team name** — blocks the Access application
-- Access application on `note.jpsapps.com`, login method **Cloudflare IdP** + one-time
-  PIN fallback, policy allowing `jpsappshq@gmail.com`, session duration 1 month
-- Copy the **AUD tag** into `ACCESS_AUD`, team domain into `ACCESS_TEAM_DOMAIN`, redeploy
-- Bind `img.jpsapps.com` to the `note-photos` bucket in the R2 dashboard
-
-Team name chosen: **`jpsapps`** → `jpsapps.cloudflareaccess.com`.
-
-The `Note-JpsApps` token has **no Zero Trust or SSL permission** (`Authentication
-error` on `/access/organizations`, `9109` on certificate packs). The Access work is
-dashboard-only unless the token is widened.
+- Add **Google** as an IdP if biometric/passkey unlock is wanted (§7). One-time PIN
+  works today; adding an IdP later changes neither the AUD tag nor the team domain, so
+  it breaks nothing.
+- Phase 6 will need `/mcp` and `/oauth/*` **excluded** from Access. The mechanism is a
+  second application on those paths with a **Bypass** policy — Access matches the most
+  specific path first. Not done, because nothing is served there yet.
+- **`Access controls → MCP Portals` (Beta)** now exists in the dashboard. Spec §8a
+  assumed Cloudflare-hosted remote MCP with OAuth built in; this looks like exactly
+  that. Evaluate it before hand-rolling the connector.
+- Revoke the `Note-JpsApps` API token when convenient. It carries D1, R2, Workers
+  Scripts, Workers Routes, DNS, Zone Read and Access: Apps and Policies — all Edit.
 
 ## note.jpsapps.com
 
