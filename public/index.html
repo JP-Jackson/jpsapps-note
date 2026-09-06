@@ -27,6 +27,10 @@
     }
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  /* Must outrank the display rules below (.shot video, .btn) — a class+element
+     selector beats the UA stylesheet's [hidden], so without this the hidden
+     attribute silently does nothing and the viewfinder never gives way to the shot. */
+  [hidden]{display:none!important}
   html,body{height:100%}
   body{margin:0;background:var(--bg);color:var(--ink);
     font:400 16px/1.5 Archivo,system-ui,-apple-system,"Segoe UI",sans-serif;
