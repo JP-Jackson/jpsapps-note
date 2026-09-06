@@ -3,68 +3,428 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#16222E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Note">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon-192.png">
 <title>Note</title>
 <style>
+  /* Palette and type per NOTE_SPEC.md §10. Every colour is a token so a theme is a
+     named set of values; dark surfaces sit at 12-15% lightness, not near-black. */
   :root{
     --navy:#16222E; --blue:#2C7BC4; --blue-deep:#1B5486;
     --bg:#E6E9EC; --card:#FFF; --ink:#121A22; --ink-2:#586573; --line:#D2D8DE;
+    --ok:#1f7a4d; --warn:#D9931A; --bad:#D9483C;
+    --press:4px;
   }
   @media (prefers-color-scheme:dark){
-    :root{ --bg:#171B20; --card:#222831; --ink:#E6EBF0; --ink-2:#94A1AE; --line:#323A45; --blue:#5AA9EE; }
+    :root{
+      --bg:#171B20; --card:#222831; --ink:#E6EBF0; --ink-2:#94A1AE; --line:#323A45;
+      --blue:#5AA9EE; --blue-deep:#2C7BC4;
+      --ok:#5ad699; --warn:#F0B44C; --bad:#FF8478;
+    }
   }
-  *{box-sizing:border-box}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
   body{margin:0;background:var(--bg);color:var(--ink);
-    font:400 16px/1.5 Archivo,system-ui,-apple-system,Segoe UI,sans-serif}
-  header{background:var(--navy);color:#fff;padding:16px 20px;font-weight:700;letter-spacing:.02em}
-  main{max-width:640px;margin:0 auto;padding:20px}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:20px;margin-bottom:16px}
-  h1{font-size:20px;margin:0 0 4px}
-  .muted{color:var(--ink-2);font-size:14px;margin:0}
-  dl{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;margin:16px 0 0}
-  dt{color:var(--ink-2);font:500 12px/1.6 "IBM Plex Mono",ui-monospace,monospace;text-transform:uppercase}
-  dd{margin:0;font:400 14px/1.6 "IBM Plex Mono",ui-monospace,monospace;word-break:break-all}
-  .pill{display:inline-block;padding:2px 10px;border-radius:99px;font:500 12px/1.8 "IBM Plex Mono",monospace}
-  .ok{background:#1f7a4d22;color:#1f7a4d} .bad{background:#d9483c22;color:#d9483c}
-  @media (prefers-color-scheme:dark){ .ok{color:#5ad699} .bad{color:#ff8478} }
+    font:400 16px/1.5 Archivo,system-ui,-apple-system,"Segoe UI",sans-serif;
+    overscroll-behavior-y:contain}
+  .mono{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+
+  /* ---------- chrome ---------- */
+  header{background:var(--navy);color:#fff;padding:12px 16px;
+    padding-top:calc(12px + env(safe-area-inset-top));
+    display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:20}
+  header .name{font-weight:700;letter-spacing:.06em;font-size:15px}
+  /* Status is a dot PLUS small text, always visible (§6). The word does the work. */
+  #status{margin-left:auto;display:flex;align-items:center;gap:7px;
+    font:500 11px/1 "IBM Plex Mono",ui-monospace,monospace;letter-spacing:.08em;
+    color:#cfd8e0;text-transform:uppercase}
+  #dot{width:9px;height:9px;border-radius:50%;background:var(--ok);flex:none}
+  #status.offline #dot{background:var(--warn)}
+  #status.syncing #dot{background:#8ab4dd;animation:pulse 1s ease-in-out infinite}
+  #status.error #dot{background:var(--bad)}
+  @keyframes pulse{50%{opacity:.25}}
+
+  main{max-width:560px;margin:0 auto;padding:16px 16px 40px}
+
+  /* ---------- toolbox buttons: hard 4px shadow, visibly depress (§10) ---------- */
+  .btn{display:block;width:100%;border:0;border-radius:12px;
+    background:var(--blue);color:#fff;font:700 17px/1 Archivo,system-ui,sans-serif;
+    padding:20px 16px;cursor:pointer;
+    box-shadow:0 var(--press) 0 var(--blue-deep);
+    transform:translateY(0);transition:transform .06s,box-shadow .06s}
+  .btn:active{transform:translateY(var(--press));box-shadow:0 0 0 var(--blue-deep)}
+  .btn[disabled]{opacity:.5;pointer-events:none}
+  .btn.ghost{background:var(--card);color:var(--ink);
+    box-shadow:0 var(--press) 0 var(--line);border:1px solid var(--line)}
+  .btn.ghost:active{box-shadow:0 0 0 var(--line)}
+
+  /* ---------- capture ---------- */
+  .shot{position:relative;width:100%;aspect-ratio:4/3;border-radius:12px;overflow:hidden;
+    background:var(--navy);border:1px solid var(--line);margin-bottom:12px;display:none}
+  .shot.on{display:block}
+  .shot video,.shot img{width:100%;height:100%;object-fit:cover;display:block}
+  .shutter{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);
+    width:64px;height:64px;border-radius:50%;border:4px solid #fff;background:#ffffff40;
+    cursor:pointer}
+  .shutter:active{background:#ffffff90}
+  .retake{position:absolute;right:10px;top:10px;background:#0009;color:#fff;border:0;
+    border-radius:8px;padding:8px 12px;font:600 13px Archivo,sans-serif;cursor:pointer}
+
+  textarea{width:100%;min-height:96px;resize:vertical;border-radius:12px;
+    border:1px solid var(--line);background:var(--card);color:var(--ink);
+    padding:14px;font:400 17px/1.45 Archivo,system-ui,sans-serif;margin-bottom:12px}
+  textarea:focus{outline:2px solid var(--blue);outline-offset:-1px}
+
+  .chips{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+  .chip{flex:1 1 0;min-width:88px;padding:14px 10px;border-radius:10px;
+    border:1px solid var(--line);background:var(--card);color:var(--ink-2);
+    font:600 14px Archivo,system-ui,sans-serif;cursor:pointer;text-align:center}
+  .chip[aria-pressed="true"]{background:var(--navy);color:#fff;border-color:var(--navy)}
+  @media (prefers-color-scheme:dark){
+    .chip[aria-pressed="true"]{background:var(--blue);border-color:var(--blue);color:#0b1219}
+  }
+
+  .row{display:flex;align-items:center;gap:10px;margin-bottom:14px;
+    color:var(--ink-2);font-size:14px}
+  .row input{width:22px;height:22px;accent-color:var(--blue)}
+
+  /* ---------- log ---------- */
+  h2{font:600 12px/1 "IBM Plex Mono",monospace;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--ink-2);margin:28px 0 10px}
+  .entry{background:var(--card);border:1px solid var(--line);border-radius:10px;
+    padding:12px 14px;margin-bottom:8px;display:flex;gap:12px;align-items:flex-start}
+  .entry .when{font:500 11px/1.5 "IBM Plex Mono",monospace;color:var(--ink-2);
+    white-space:nowrap;padding-top:2px}
+  .entry .what{flex:1;min-width:0;word-wrap:break-word}
+  .entry .tag{font:500 10px/1 "IBM Plex Mono",monospace;letter-spacing:.08em;
+    text-transform:uppercase;color:var(--ink-2);display:block;margin-top:4px}
+  .entry.pending{border-style:dashed;opacity:.75}
+  .empty{color:var(--ink-2);font-size:14px;padding:4px 2px}
+  .err{background:#d9483c1a;border:1px solid var(--bad);color:var(--bad);
+    border-radius:10px;padding:10px 12px;font-size:14px;margin-bottom:12px;display:none}
+  .err.on{display:block}
 </style>
 </head>
 <body>
-<header>NOTE</header>
+<header>
+  <span class="name">NOTE</span>
+  <span id="status"><span id="dot"></span><span id="statusText">SYNCED</span></span>
+</header>
+
 <main>
-  <div class="card">
-    <h1>Phase 1 — foundation</h1>
-    <p class="muted">Worker, D1, R2 and auth. The capture screen arrives in phase 2.</p>
-    <dl id="out"><dt>status</dt><dd>checking…</dd></dl>
+  <div class="err" id="err"></div>
+
+  <div class="shot" id="shot">
+    <video id="video" playsinline muted></video>
+    <img id="preview" alt="" hidden>
+    <button class="shutter" id="shutter" aria-label="Take photo"></button>
+    <button class="retake" id="retake" hidden>Retake</button>
   </div>
+
+  <button class="btn ghost" id="camBtn" style="margin-bottom:12px">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+         style="vertical-align:-4px;margin-right:8px">
+      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+      <circle cx="12" cy="13" r="4"/>
+    </svg>Add photo</button>
+  <input type="file" id="filePick" accept="image/*" capture="environment" hidden>
+
+  <textarea id="body" placeholder="What happened? (tap the mic on your keyboard to dictate)"></textarea>
+
+  <div class="chips" id="chips">
+    <button class="chip" data-ctx="work"     aria-pressed="true">Work</button>
+    <button class="chip" data-ctx="home"     aria-pressed="false">Home</button>
+    <button class="chip" data-ctx="vehicles" aria-pressed="false">Vehicles</button>
+  </div>
+
+  <label class="row"><input type="checkbox" id="isOpen"> Needs follow-up</label>
+
+  <button class="btn" id="save">Save</button>
+
+  <h2>Recent</h2>
+  <div id="log"><div class="empty">Nothing yet.</div></div>
 </main>
+
 <script>
-const out = document.getElementById('out');
-const row = (k, v) => `<dt>${k}</dt><dd>${v}</dd>`;
-const pill = (ok, t) => `<span class="pill ${ok?'ok':'bad'}">${t}</span>`;
+/* ------------------------------------------------------------------ constants */
+const CTX_KEY = "note.lastContext";
+const MAX_EDGE = 1600;      // §5: 1600px long edge, JPEG q80. Roughly a quarter the
+const QUALITY  = 0.8;       // size, and nameplates and part numbers stay readable.
+
+const $ = (id) => document.getElementById(id);
+const err = (msg) => { $("err").textContent = msg; $("err").classList.toggle("on", !!msg); };
+
+/* ------------------------------------------------------------------ IndexedDB
+   The queue is the whole offline story (§6). An entry is written here BEFORE any
+   network attempt, so a capture in a dead zone is durable the moment you hit save —
+   losing one is the failure that kills trust in the tool. */
+const DB_NAME = "note", STORE = "queue";
+let idb;
+
+function openDb() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open(DB_NAME, 1);
+    r.onupgradeneeded = () => {
+      if (!r.result.objectStoreNames.contains(STORE)) {
+        r.result.createObjectStore(STORE, { keyPath: "id" });
+      }
+    };
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+function tx(mode) { return idb.transaction(STORE, mode).objectStore(STORE); }
+function put(rec)  { return new Promise((res, rej) => { const q = tx("readwrite").put(rec); q.onsuccess = res; q.onerror = () => rej(q.error); }); }
+function del(id)   { return new Promise((res, rej) => { const q = tx("readwrite").delete(id); q.onsuccess = res; q.onerror = () => rej(q.error); }); }
+function all()     { return new Promise((res, rej) => { const q = tx("readonly").getAll();   q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); }
+
+/* ------------------------------------------------------------------ camera
+   §5: capture happens inside the app, not via the phone's camera app — that is what
+   keeps photos in R2 and out of Google Photos, which has no API here and so can never
+   be searched or referenced. getUserMedia is the only way to do that; the file input
+   is a fallback for when permission is refused. */
+let stream = null, photoBlob = null;
+
+async function openCamera() {
+  err("");
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 } },
+      audio: false,
+    });
+    $("video").srcObject = stream;
+    await $("video").play();
+    $("shot").classList.add("on");
+    $("video").hidden = false;
+    $("preview").hidden = true;
+    $("shutter").hidden = false;
+    $("retake").hidden = true;
+    $("camBtn").hidden = true;
+  } catch (e) {
+    // Permission denied, no camera, or an insecure context. Fall back rather than
+    // dead-end: a capture tool that refuses to capture is worthless.
+    $("filePick").click();
+  }
+}
+
+function stopCamera() {
+  if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }
+  $("video").srcObject = null;
+}
+
+/** Draw to a canvas at 1600px long edge and re-encode as JPEG q80. */
+async function compress(source, w, h) {
+  const scale = Math.min(1, MAX_EDGE / Math.max(w, h));
+  const cw = Math.round(w * scale), ch = Math.round(h * scale);
+  const canvas = document.createElement("canvas");
+  canvas.width = cw; canvas.height = ch;
+  canvas.getContext("2d").drawImage(source, 0, 0, cw, ch);
+  return new Promise((res) => canvas.toBlob(res, "image/jpeg", QUALITY));
+}
+
+async function shoot() {
+  const v = $("video");
+  photoBlob = await compress(v, v.videoWidth, v.videoHeight);
+  stopCamera();
+  $("preview").src = URL.createObjectURL(photoBlob);
+  $("video").hidden = true;
+  $("preview").hidden = false;
+  $("shutter").hidden = true;
+  $("retake").hidden = false;
+}
+
+$("filePick").addEventListener("change", async (e) => {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  const bmp = await createImageBitmap(f);
+  photoBlob = await compress(bmp, bmp.width, bmp.height);
+  bmp.close();
+  $("preview").src = URL.createObjectURL(photoBlob);
+  $("shot").classList.add("on");
+  $("video").hidden = true;
+  $("preview").hidden = false;
+  $("shutter").hidden = true;
+  $("retake").hidden = false;
+  $("camBtn").hidden = true;
+});
+
+function clearPhoto() {
+  stopCamera();
+  photoBlob = null;
+  $("shot").classList.remove("on");
+  $("preview").removeAttribute("src");
+  $("camBtn").hidden = false;
+}
+
+$("camBtn").addEventListener("click", openCamera);
+$("shutter").addEventListener("click", shoot);
+$("retake").addEventListener("click", () => { clearPhoto(); openCamera(); });
+
+/* ------------------------------------------------------------------ context chips */
+let context = localStorage.getItem(CTX_KEY) || "work";
+function paintChips() {
+  document.querySelectorAll(".chip").forEach((c) => {
+    c.setAttribute("aria-pressed", String(c.dataset.ctx === context));
+  });
+}
+$("chips").addEventListener("click", (e) => {
+  const chip = e.target.closest(".chip");
+  if (!chip) return;
+  context = chip.dataset.ctx;
+  localStorage.setItem(CTX_KEY, context);   // remembered, so the common case is 0 taps
+  paintChips();
+});
+paintChips();
+
+/* ------------------------------------------------------------------ location
+   Every entry stores raw coordinates always (§4). Never block the save on it —
+   a fix can take seconds and capture speed decides whether this habit survives. */
+function coords() {
+  return new Promise((res) => {
+    if (!navigator.geolocation) return res({ lat: null, lng: null });
+    const done = (v) => res(v);
+    const t = setTimeout(() => done({ lat: null, lng: null }), 2500);
+    navigator.geolocation.getCurrentPosition(
+      (p) => { clearTimeout(t); done({ lat: p.coords.latitude, lng: p.coords.longitude }); },
+      () => { clearTimeout(t); done({ lat: null, lng: null }); },
+      { enableHighAccuracy: true, timeout: 2500, maximumAge: 60000 },
+    );
+  });
+}
+
+/* ------------------------------------------------------------------ save + sync */
+$("save").addEventListener("click", async () => {
+  const text = $("body").value.trim();
+  if (!text && !photoBlob) { err("Add a note or a photo first."); return; }
+  err("");
+  $("save").disabled = true;
+
+  const { lat, lng } = await coords();
+  const rec = {
+    id: crypto.randomUUID(),          // §6: the device owns the id, so no collisions
+    created_at: Date.now(),           //     and an offline entry lands whenever it lands
+    context,
+    body: text || null,
+    lat, lng,
+    is_open: $("isOpen").checked,
+    photo: photoBlob || null,
+    sent: false,
+  };
+
+  await put(rec);                     // durable BEFORE any network attempt
+  $("body").value = "";
+  $("isOpen").checked = false;
+  clearPhoto();
+  $("save").disabled = false;
+  render();
+  flush();
+});
+
+let flushing = false;
+async function flush() {
+  if (flushing) return;
+  if (!navigator.onLine) { paintStatus(); return; }
+  flushing = true; paintStatus();
+
+  try {
+    for (const rec of await all()) {
+      const res = await fetch("/api/entries", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          id: rec.id, created_at: rec.created_at, context: rec.context,
+          body: rec.body, lat: rec.lat, lng: rec.lng, is_open: rec.is_open,
+        }),
+      });
+      // 401/403 means the Access session lapsed. Keep the queue and reload into login;
+      // dropping a capture because a cookie expired would be unforgivable.
+      if (res.status === 401 || res.status === 403) { location.reload(); return; }
+      if (!res.ok) throw new Error("entry " + res.status);
+
+      if (rec.photo) {
+        const up = await fetch("/api/photos?entry_id=" + encodeURIComponent(rec.id), {
+          method: "POST",
+          headers: { "content-type": rec.photo.type || "image/jpeg" },
+          body: rec.photo,
+        });
+        if (!up.ok) throw new Error("photo " + up.status);
+      }
+      await del(rec.id);              // only once BOTH parts are safely up
+    }
+    err("");
+  } catch (e) {
+    // Leave the queue intact and try again on the next tick or connectivity change.
+    paintStatus("error");
+  } finally {
+    flushing = false;
+    paintStatus();
+    render();
+    loadServer();
+  }
+}
+
+/* ------------------------------------------------------------------ status + log */
+async function paintStatus(force) {
+  const n = (await all()).length;
+  const el = $("status"), txt = $("statusText");
+  el.className = "";
+  if (force === "error") { el.className = "error"; txt.textContent = n + " QUEUED · RETRYING"; return; }
+  if (flushing)          { el.className = "syncing"; txt.textContent = "SYNCING…"; return; }
+  if (!navigator.onLine) { el.className = "offline"; txt.textContent = n ? "OFFLINE · " + n + " QUEUED" : "OFFLINE"; return; }
+  if (n)                 { el.className = "offline"; txt.textContent = n + " QUEUED"; return; }
+  txt.textContent = "SYNCED";
+}
+
+const fmt = (ms) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+let serverEntries = [];
+async function loadServer() {
+  if (!navigator.onLine) return;
+  try {
+    const r = await fetch("/api/entries?limit=20");
+    if (r.ok) { serverEntries = (await r.json()).entries || []; render(); }
+  } catch {}
+}
+
+async function render() {
+  const queued = await all();
+  const rows = [
+    ...queued.map((q) => ({ ...q, pending: true })),
+    ...serverEntries.map((e) => ({ ...e, pending: false })),
+  ];
+  const log = $("log");
+  if (!rows.length) { log.innerHTML = '<div class="empty">Nothing yet.</div>'; return; }
+  log.innerHTML = rows.map((r) => `
+    <div class="entry${r.pending ? " pending" : ""}">
+      <span class="when">${fmt(r.created_at)}</span>
+      <span class="what">${esc(r.body || "(photo)")}
+        <span class="tag">${esc(r.context)}${r.is_open ? " · open" : ""}${r.pending ? " · queued" : ""}</span>
+      </span>
+    </div>`).join("");
+  paintStatus();
+}
+
+/* ------------------------------------------------------------------ boot */
+addEventListener("online",  () => { paintStatus(); flush(); });
+addEventListener("offline", () => paintStatus());
+setInterval(() => { if (navigator.onLine) flush(); }, 30000);
 
 (async () => {
-  let html = '';
-  try {
-    const h = await (await fetch('/api/health')).json();
-    html += row('database', pill(h.ok, h.ok ? `OK · ${h.tables} tables` : 'NO SCHEMA'));
-    html += row('access', pill(h.accessConfigured, h.accessConfigured ? 'CONFIGURED' : 'NOT SET'));
-    html += row('env', h.environment);
-  } catch (e) {
-    html += row('database', pill(false, 'UNREACHABLE'));
+  idb = await openDb();
+  await paintStatus();
+  await render();
+  await loadServer();
+  flush();
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
   }
-  try {
-    const r = await fetch('/api/me');
-    if (r.ok) {
-      const me = await r.json();
-      html += row('signed in', pill(true, me.email));
-      html += row('user_id', me.id);
-    } else {
-      html += row('signed in', pill(false, (await r.json()).error || r.status));
-    }
-  } catch (e) {
-    html += row('signed in', pill(false, 'ERROR'));
-  }
-  out.innerHTML = html;
 })();
 </script>
 </body>

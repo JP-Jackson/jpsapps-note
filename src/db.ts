@@ -32,6 +32,37 @@ export interface QueryCost {
   rows_written: number;
 }
 
+/** A capture from the device. `id` is generated there, at capture time (§6). */
+export interface NewEntry {
+  id: string;
+  created_at: number;
+  context: string;
+  body: string | null;
+  lat: number | null;
+  lng: number | null;
+  is_open: boolean;
+}
+
+export interface EntryRow {
+  id: string;
+  created_at: number;
+  synced_at: number | null;
+  context: string;
+  body: string | null;
+  body_raw: string | null;
+  lat: number | null;
+  lng: number | null;
+  is_open: number;
+}
+
+export interface NewAttachment {
+  entry_id: string;
+  kind: string;
+  r2_key: string;
+  mime: string;
+  bytes: number;
+}
+
 export interface UsageTotals {
   rows_read: number;
   rows_written: number;
@@ -183,6 +214,83 @@ export class Db {
       if (r.metric in totals) totals[r.metric as keyof UsageTotals] = r.amount;
     }
     return totals;
+  }
+
+  // ------------------------------------------------------------------ entries
+
+  /**
+   * Land a captured entry.
+   *
+   * Idempotent on the client-generated id: a queued entry that gets retried after a
+   * flaky sync must not duplicate or overwrite. §6 makes the device the source of
+   * ids precisely so two captures can never collide and a replay is a no-op.
+   *
+   * `body_raw` is written once, here, from the same text as `body`. §4 keeps the
+   * original wording forever even after an edit rewrites `body`, so it is set at
+   * insert and never touched again.
+   */
+  async createEntry(e: NewEntry): Promise<{ created: boolean }> {
+    const res = await this.d1
+      .prepare(
+        `INSERT INTO entries
+           (id, user_id, created_at, synced_at, context, body, body_raw, lat, lng, is_open)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (id) DO NOTHING`,
+      )
+      .bind(
+        e.id,
+        this.userId,
+        e.created_at,
+        Date.now(),
+        e.context,
+        e.body,
+        e.body,
+        e.lat,
+        e.lng,
+        e.is_open ? 1 : 0,
+      )
+      .run();
+    readMeta(this.meter, res.meta);
+    return { created: (res.meta?.changes ?? 0) > 0 };
+  }
+
+  /** Today's captures, newest first. Rides the (user_id, created_at DESC) index. */
+  async recentEntries(limit = 20): Promise<EntryRow[]> {
+    return this.all<EntryRow>(
+      this.d1
+        .prepare(
+          `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open
+             FROM entries
+            WHERE user_id = ? AND deleted_at IS NULL
+            ORDER BY created_at DESC
+            LIMIT ?`,
+        )
+        .bind(this.userId, limit),
+    );
+  }
+
+  /** Does this entry belong to the current user? Guards photo attachment. */
+  async ownsEntry(entryId: string): Promise<boolean> {
+    const row = await this.first<{ id: string }>(
+      this.d1
+        .prepare("SELECT id FROM entries WHERE id = ? AND user_id = ?")
+        .bind(entryId, this.userId),
+    );
+    return row !== null;
+  }
+
+  async addAttachment(a: NewAttachment): Promise<string> {
+    const id = newId();
+    await this.run(
+      this.d1
+        .prepare(
+          `INSERT INTO attachments
+             (id, user_id, entry_id, kind, r2_key, mime, bytes, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(id, this.userId, a.entry_id, a.kind, a.r2_key, a.mime, a.bytes, Date.now()),
+    );
+    return id;
   }
 
   /**
