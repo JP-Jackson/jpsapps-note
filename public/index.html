@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#16222E">
-<meta name="app-version" content="1.1.0">
+<meta name="app-version" content="1.2.0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Note">
@@ -12,22 +12,62 @@
 <link rel="icon" href="/icon-192.png">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <title>Note</title>
+<script>
+/* Runs before first paint: reading the stored preference after render would show a
+   flash of the wrong theme on every cold start. Wrapped because storage throws in
+   some privacy modes, and a broken picker must never stop the app loading. */
+(function () {
+  try {
+    var t = localStorage.getItem("note.theme");
+    var f = localStorage.getItem("note.font");
+    if (t && t !== "system") document.documentElement.dataset.theme = t;
+    if (f && f !== "inter") document.documentElement.dataset.font = f;
+  } catch (e) {}
+})();
+</script>
 <style>
-  /* Palette and type per NOTE_SPEC.md §10. Every colour is a token so a theme is a
-     named set of values; dark surfaces sit at 12-15% lightness, not near-black. */
+  /* Self-hosted so they render identically with no signal (§2) and get cached by the
+     service worker. A @font-face is lazy: the browser downloads a face only when
+     something on screen actually uses it, so the two alternates cost nothing unless
+     they are picked. */
+  @font-face{font-family:"Inter";font-weight:400;font-display:swap;src:url(/fonts/inter-400.woff2) format("woff2")}
+  @font-face{font-family:"Inter";font-weight:700;font-display:swap;src:url(/fonts/inter-700.woff2) format("woff2")}
+  @font-face{font-family:"Winky Sans";font-weight:400;font-display:swap;src:url(/fonts/winky-400.woff2) format("woff2")}
+  @font-face{font-family:"Winky Sans";font-weight:700;font-display:swap;src:url(/fonts/winky-700.woff2) format("woff2")}
+  @font-face{font-family:"Gluten";font-weight:400;font-display:swap;src:url(/fonts/gluten-400.woff2) format("woff2")}
+  @font-face{font-family:"Gluten";font-weight:700;font-display:swap;src:url(/fonts/gluten-700.woff2) format("woff2")}
+  @font-face{font-family:"IBM Plex Mono";font-weight:400;font-display:swap;src:url(/fonts/plexmono-400.woff2) format("woff2")}
+  @font-face{font-family:"IBM Plex Mono";font-weight:500;font-display:swap;src:url(/fonts/plexmono-500.woff2) format("woff2")}
+
+  /* Palette and type per NOTE_SPEC.md §10. Every colour is a token, so a theme is a
+     named set of values (§10: "ship the picker"). Dark surfaces sit at 12-15%
+     lightness, not near-black. --font-ui is the same idea applied to type.
+     Three blocks, because the theme has three states: light, dark, and "follow the
+     system". Bare :root is light; the media query supplies dark only when the user
+     has not explicitly chosen light; the attribute rule lets an explicit choice win
+     in both directions. */
   :root{
     --navy:#16222E; --blue:#2C7BC4; --blue-deep:#1B5486;
     --bg:#E6E9EC; --card:#FFF; --ink:#121A22; --ink-2:#586573; --line:#D2D8DE;
     --ok:#1f7a4d; --warn:#D9931A; --bad:#D9483C;
     --press:4px; --nav-h:60px;
+    --font-ui:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
+    --font-mono:var(--font-mono);
   }
   @media (prefers-color-scheme:dark){
-    :root{
+    :root:not([data-theme="light"]){
       --bg:#171B20; --card:#222831; --ink:#E6EBF0; --ink-2:#94A1AE; --line:#323A45;
       --blue:#5AA9EE; --blue-deep:#2C7BC4;
       --ok:#5ad699; --warn:#F0B44C; --bad:#FF8478;
     }
   }
+  :root[data-theme="dark"]{
+    --bg:#171B20; --card:#222831; --ink:#E6EBF0; --ink-2:#94A1AE; --line:#323A45;
+    --blue:#5AA9EE; --blue-deep:#2C7BC4;
+    --ok:#5ad699; --warn:#F0B44C; --bad:#FF8478;
+  }
+  :root[data-font="winky"] { --font-ui:"Winky Sans",system-ui,sans-serif }
+  :root[data-font="gluten"]{ --font-ui:"Gluten",system-ui,sans-serif }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   /* Must outrank the display rules below (.shot video, .btn) — a class+element
      selector beats the UA stylesheet's [hidden], so without this the hidden
@@ -35,7 +75,7 @@
   [hidden]{display:none!important}
   html,body{height:100%}
   body{margin:0;background:var(--bg);color:var(--ink);
-    font:400 16px/1.5 Archivo,system-ui,-apple-system,"Segoe UI",sans-serif;
+    font:400 16px/1.5 var(--font-ui);
     overscroll-behavior-y:contain}
 
   /* ---------- chrome ---------- */
@@ -48,15 +88,15 @@
   header .name{font-weight:700;letter-spacing:.07em;font-size:15px;line-height:1;
     display:flex;align-items:baseline;gap:7px}
   /* The build, next to the name — the first thing to check when something looks wrong. */
-  #ver{font:400 10px/1 "IBM Plex Mono",ui-monospace,monospace;letter-spacing:.04em;
+  #ver{font:400 10px/1 var(--font-mono);letter-spacing:.04em;
     color:rgba(255,255,255,.45);white-space:nowrap}
   #ver.stale{color:var(--warn)}
   /* Present but recessive: says which app this is without competing with it. */
-  header .host{font:400 10px/1 "IBM Plex Mono",ui-monospace,monospace;
+  header .host{font:400 10px/1 var(--font-mono);
     letter-spacing:.06em;color:rgba(255,255,255,.24)}
   /* Status is a dot PLUS small text, always visible (§6). The word does the work. */
   #status{margin-left:auto;display:flex;align-items:center;gap:7px;
-    font:500 11px/1 "IBM Plex Mono",ui-monospace,monospace;letter-spacing:.08em;
+    font:500 11px/1 var(--font-mono);letter-spacing:.08em;
     color:#cfd8e0;text-transform:uppercase}
   #dot{width:9px;height:9px;border-radius:50%;background:var(--ok);flex:none}
   #status.offline #dot{background:var(--warn)}
@@ -68,7 +108,7 @@
 
   /* ---------- toolbox buttons: hard 4px shadow, visibly depress (§10) ---------- */
   .btn{display:block;width:100%;border:0;border-radius:12px;
-    background:var(--blue);color:#fff;font:700 17px/1 Archivo,system-ui,sans-serif;
+    background:var(--blue);color:#fff;font:700 17px/1 var(--font-ui);
     padding:20px 16px;cursor:pointer;
     box-shadow:0 var(--press) 0 var(--blue-deep);
     transform:translateY(0);transition:transform .06s,box-shadow .06s}
@@ -89,40 +129,43 @@
     cursor:pointer}
   .shutter:active{background:#ffffff90}
   .retake{position:absolute;right:10px;top:10px;background:#0009;color:#fff;border:0;
-    border-radius:8px;padding:8px 12px;font:600 13px Archivo,sans-serif;cursor:pointer}
+    border-radius:8px;padding:8px 12px;font:600 13px var(--font-ui);cursor:pointer}
 
   textarea{width:100%;min-height:96px;resize:vertical;border-radius:12px;
     border:1px solid var(--line);background:var(--card);color:var(--ink);
-    padding:14px;font:400 17px/1.45 Archivo,system-ui,sans-serif;margin-bottom:12px}
+    padding:14px;font:400 17px/1.45 var(--font-ui);margin-bottom:12px}
   textarea:focus{outline:2px solid var(--blue);outline-offset:-1px}
   input[type=search]{width:100%;border-radius:12px;border:1px solid var(--line);
     background:var(--card);color:var(--ink);padding:15px 14px;
-    font:400 17px Archivo,system-ui,sans-serif;margin-bottom:12px}
+    font:400 17px var(--font-ui);margin-bottom:12px}
   input[type=search]:focus{outline:2px solid var(--blue);outline-offset:-1px}
 
   .chips{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
   .chip{flex:1 1 0;min-width:88px;padding:14px 10px;border-radius:10px;
     border:1px solid var(--line);background:var(--card);color:var(--ink-2);
-    font:600 14px Archivo,system-ui,sans-serif;cursor:pointer;text-align:center}
+    font:600 14px var(--font-ui);cursor:pointer;text-align:center}
   .chip[aria-pressed="true"]{background:var(--navy);color:#fff;border-color:var(--navy)}
   @media (prefers-color-scheme:dark){
-    .chip[aria-pressed="true"]{background:var(--blue);border-color:var(--blue);color:#0b1219}
+    :root:not([data-theme="light"]) .chip[aria-pressed="true"]{
+      background:var(--blue);border-color:var(--blue);color:#0b1219}
   }
+  :root[data-theme="dark"] .chip[aria-pressed="true"]{
+    background:var(--blue);border-color:var(--blue);color:#0b1219}
 
   .row{display:flex;align-items:center;gap:10px;margin-bottom:14px;
     color:var(--ink-2);font-size:14px}
   .row input{width:22px;height:22px;accent-color:var(--blue)}
 
   /* ---------- lists ---------- */
-  h2{font:600 12px/1 "IBM Plex Mono",monospace;letter-spacing:.1em;
+  h2{font:600 12px/1 var(--font-mono);letter-spacing:.1em;
     text-transform:uppercase;color:var(--ink-2);margin:22px 0 10px}
   .entry{background:var(--card);border:1px solid var(--line);border-radius:10px;
     padding:12px 14px;margin-bottom:8px;display:flex;gap:12px;align-items:flex-start;
     width:100%;text-align:left;cursor:pointer;font:inherit;color:inherit}
-  .entry .when{font:500 11px/1.5 "IBM Plex Mono",monospace;color:var(--ink-2);
+  .entry .when{font:500 11px/1.5 var(--font-mono);color:var(--ink-2);
     white-space:nowrap;padding-top:2px}
   .entry .what{flex:1;min-width:0;word-wrap:break-word}
-  .entry .tag{font:500 10px/1 "IBM Plex Mono",monospace;letter-spacing:.08em;
+  .entry .tag{font:500 10px/1 var(--font-mono);letter-spacing:.08em;
     text-transform:uppercase;color:var(--ink-2);display:block;margin-top:5px}
   .entry.pending{border-style:dashed;opacity:.75;cursor:default}
   .entry.open{border-left:4px solid var(--warn)}
@@ -134,16 +177,16 @@
   /* ---------- day stepper ---------- */
   .stepper{display:flex;align-items:center;gap:10px;margin-bottom:12px}
   .stepper button{width:52px;height:48px;border-radius:10px;border:1px solid var(--line);
-    background:var(--card);color:var(--ink);font:700 20px/1 Archivo,sans-serif;cursor:pointer}
+    background:var(--card);color:var(--ink);font:700 20px/1 var(--font-ui);cursor:pointer}
   .stepper button[disabled]{opacity:.35;pointer-events:none}
-  .stepper .label{flex:1;text-align:center;font:600 15px Archivo,sans-serif}
+  .stepper .label{flex:1;text-align:center;font:600 15px var(--font-ui)}
 
   /* ---------- bottom nav ---------- */
   nav{position:fixed;left:0;right:0;bottom:0;z-index:30;display:flex;
     background:var(--navy);border-top:1px solid #0006;
     padding-bottom:env(safe-area-inset-bottom)}
   nav button{flex:1;height:var(--nav-h);border:0;background:none;color:#8fa3b5;
-    font:600 11px/1.3 "IBM Plex Mono",monospace;letter-spacing:.06em;
+    font:600 11px/1.3 var(--font-mono);letter-spacing:.06em;
     text-transform:uppercase;cursor:pointer;display:flex;flex-direction:column;
     align-items:center;justify-content:center;gap:5px;position:relative}
   nav button svg{width:21px;height:21px}
@@ -151,7 +194,7 @@
   nav button[aria-current="true"] svg{stroke:var(--blue)}
   .badge{position:absolute;top:8px;left:calc(50% + 6px);background:var(--warn);
     color:#16222E;border-radius:99px;min-width:18px;padding:0 5px;
-    font:700 10px/18px "IBM Plex Mono",monospace;text-align:center}
+    font:700 10px/18px var(--font-mono);text-align:center}
 
   /* ---------- detail ---------- */
   #detail{position:fixed;inset:0;z-index:40;background:var(--bg);overflow-y:auto;
@@ -159,24 +202,44 @@
   #detail .bar{background:var(--navy);color:#fff;display:flex;align-items:center;gap:12px;
     padding:12px 16px;padding-top:calc(12px + env(safe-area-inset-top));
     position:sticky;top:0}
-  #detail .bar button{background:none;border:0;color:#fff;font:600 15px Archivo,sans-serif;
+  #detail .bar button{background:none;border:0;color:#fff;font:600 15px var(--font-ui);
     cursor:pointer;padding:4px 0}
   #detail .body{max-width:560px;margin:0 auto;padding:16px}
   #detail img.photo{width:100%;border-radius:12px;border:1px solid var(--line);
     margin-bottom:10px;display:block}
   .meta{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:14px 0}
-  .meta dt{font:500 11px/1.6 "IBM Plex Mono",monospace;text-transform:uppercase;
+  .meta dt{font:500 11px/1.6 var(--font-mono);text-transform:uppercase;
     color:var(--ink-2)}
-  .meta dd{margin:0;font:400 13px/1.6 "IBM Plex Mono",monospace;word-break:break-word}
+  .meta dd{margin:0;font:400 13px/1.6 var(--font-mono);word-break:break-word}
   .rawnote{background:var(--card);border:1px solid var(--line);
     border-left:4px solid var(--ink-2);border-radius:8px;padding:10px 12px;margin:12px 0;
     font-size:14px;color:var(--ink-2)}
-  .rawnote b{display:block;font:600 10px/1.6 "IBM Plex Mono",monospace;
+  .rawnote b{display:block;font:600 10px/1.6 var(--font-mono);
     letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px}
   .thread{font-size:13px;color:var(--ink-2);margin:16px 0 4px;
-    font-family:"IBM Plex Mono",monospace;text-transform:uppercase;letter-spacing:.08em}
+    font-family:var(--font-mono);text-transform:uppercase;letter-spacing:.08em}
   .actions{display:flex;gap:8px;margin-top:14px}
   .actions .btn{flex:1}
+
+  /* ---------- settings ---------- */
+  #gear{background:none;border:0;color:rgba(255,255,255,.55);cursor:pointer;padding:4px;
+    flex:none;display:flex;margin-left:2px}
+  #gear svg{width:20px;height:20px}
+  #gear:active{color:#fff}
+  #settings{position:fixed;inset:0;z-index:41;background:var(--bg);overflow-y:auto;padding:0 0 40px}
+  #settings .bar{background:var(--navy);color:#fff;display:flex;align-items:center;gap:12px;
+    padding:12px 16px;padding-top:calc(12px + env(safe-area-inset-top));position:sticky;top:0}
+  #settings .bar button{background:none;border:0;color:#fff;font:600 15px var(--font-ui);
+    cursor:pointer;padding:4px 0}
+  #settings .body{max-width:560px;margin:0 auto;padding:16px}
+  .fontlist{display:flex;flex-direction:column;gap:8px}
+  /* Each row is set in its own face — you judge the font by reading it, not its name. */
+  .fontrow{display:block;width:100%;text-align:left;background:var(--card);
+    border:1px solid var(--line);border-radius:10px;padding:13px 14px;cursor:pointer;
+    color:var(--ink)}
+  .fontrow[aria-pressed="true"]{border-color:var(--blue);box-shadow:inset 0 0 0 1px var(--blue)}
+  .fname{display:block;font-weight:700;font-size:17px;margin-bottom:4px}
+  .fsample{display:block;font-size:14px;color:var(--ink-2);line-height:1.3}
 
   /* ---------- splash (§10: note-splash-final.html, 4.21s) ----------
      Plays on cold start only; a sessionStorage flag skips it on reload. Any touch
@@ -204,7 +267,7 @@
   #splash .word{text-align:center}
   #splash .word .n{font-size:27px;font-weight:700;letter-spacing:-.02em;color:#fff;
     line-height:1;opacity:0;transform:translateY(9px)}
-  #splash .word .d{font-family:"IBM Plex Mono",monospace;font-size:9.5px;font-weight:600;
+  #splash .word .d{font-family:var(--font-mono);font-size:9.5px;font-weight:600;
     letter-spacing:.22em;color:rgba(255,255,255,.5);margin-top:9px;opacity:0}
 
   .go .tile{animation:fade .21s ease-out 0s forwards}
@@ -245,7 +308,7 @@
   /* ---------- version ---------- */
   #stale{background:var(--blue);color:#fff;border:0;border-radius:10px;
     padding:12px 14px;width:100%;margin-bottom:12px;cursor:pointer;
-    font:600 14px Archivo,sans-serif;display:none}
+    font:600 14px var(--font-ui);display:none}
   #stale.on{display:block}
 </style>
 </head>
@@ -281,6 +344,13 @@
     <span class="host">jpsapps.com</span>
   </span>
   <span id="status"><span id="dot"></span><span id="statusText">SYNCED</span></span>
+  <button id="gear" aria-label="Settings">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+         stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="3.2"/>
+      <path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 9 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 9a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/>
+    </svg>
+  </button>
 </header>
 
 <main>
@@ -350,6 +420,40 @@
     <strong style="font-size:15px">Entry</strong>
   </div>
   <div class="body" id="detailBody"></div>
+</div>
+
+<div id="settings" hidden>
+  <div class="bar">
+    <button id="settingsBack">&lsaquo; Back</button>
+    <strong style="font-size:15px">Settings</strong>
+  </div>
+  <div class="body">
+    <h2>Theme</h2>
+    <div class="chips" id="themePick">
+      <button class="chip" data-theme-choice="system">System</button>
+      <button class="chip" data-theme-choice="light">Light</button>
+      <button class="chip" data-theme-choice="dark">Dark</button>
+    </div>
+
+    <h2>Font</h2>
+    <div class="fontlist" id="fontPick">
+      <button class="fontrow" data-font-choice="inter" style="font-family:'Inter',system-ui,sans-serif">
+        <span class="fname">Inter</span>
+        <span class="fsample">Compressor 2 tripping on startup — 480V · Il1 O0</span>
+      </button>
+      <button class="fontrow" data-font-choice="winky" style="font-family:'Winky Sans',system-ui,sans-serif">
+        <span class="fname">Winky Sans</span>
+        <span class="fsample">Compressor 2 tripping on startup — 480V · Il1 O0</span>
+      </button>
+      <button class="fontrow" data-font-choice="gluten" style="font-family:'Gluten',system-ui,sans-serif">
+        <span class="fname">Gluten</span>
+        <span class="fsample">Compressor 2 tripping on startup — 480V · Il1 O0</span>
+      </button>
+    </div>
+
+    <h2>Build</h2>
+    <dl class="meta" id="buildInfo"><dt>page</dt><dd>—</dd></dl>
+  </div>
 </div>
 
 <nav>
@@ -918,6 +1022,67 @@ document.querySelector("nav").addEventListener("click", (e) => {
   if (b) go(b.dataset.view);
 });
 
+/* ------------------------------------------------------------------ settings
+   §10 asks for a theme picker outright ("ship the picker") and every colour is
+   already a token, so the work is storing a choice and setting an attribute. Font
+   selection is the same mechanism pointed at --font-ui.
+
+   The preference is per-device on purpose for now: localStorage applies instantly and
+   works with no signal, where a server round trip would mean a flash of the wrong
+   theme on every load. Syncing it across devices needs a column on users, which is a
+   migration -- worth doing, not worth bundling into this. */
+const THEME_KEY = "note.theme", FONT_KEY = "note.font";
+const readPref = (k, d) => { try { return localStorage.getItem(k) || d; } catch { return d; } };
+const writePref = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+
+function applyTheme(choice) {
+  if (choice === "system") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = choice;
+  // Keep the browser chrome in step with the app.
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.content = "#16222E";
+  paintSettings();
+}
+
+function applyFont(choice) {
+  if (choice === "inter") delete document.documentElement.dataset.font;
+  else document.documentElement.dataset.font = choice;
+  paintSettings();
+}
+
+function paintSettings() {
+  const theme = readPref(THEME_KEY, "system");
+  const font = readPref(FONT_KEY, "inter");
+  document.querySelectorAll("[data-theme-choice]").forEach((b) =>
+    b.setAttribute("aria-pressed", String(b.dataset.themeChoice === theme)));
+  document.querySelectorAll("[data-font-choice]").forEach((b) =>
+    b.setAttribute("aria-pressed", String(b.dataset.fontChoice === font)));
+}
+
+$("themePick").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-theme-choice]");
+  if (!b) return;
+  writePref(THEME_KEY, b.dataset.themeChoice);
+  applyTheme(b.dataset.themeChoice);
+});
+$("fontPick").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-font-choice]");
+  if (!b) return;
+  writePref(FONT_KEY, b.dataset.fontChoice);
+  applyFont(b.dataset.fontChoice);
+});
+
+$("gear").addEventListener("click", async () => {
+  $("settings").hidden = false;
+  paintSettings();
+  let server = "unreachable";
+  try { server = "v" + (await (await fetch("/api/health")).json()).version; } catch {}
+  $("buildInfo").innerHTML =
+    "<dt>page</dt><dd>v" + esc(PAGE_VERSION) + "</dd>" +
+    "<dt>server</dt><dd>" + esc(server) + "</dd>";
+});
+$("settingsBack").addEventListener("click", () => { $("settings").hidden = true; });
+
 /* ------------------------------------------------------------------ splash
    §10: plays on cold start only, skipped on reload by a sessionStorage flag. The app
    boots underneath it, so the animation costs nothing — by the time it clears the
@@ -951,6 +1116,7 @@ setInterval(() => { if (navigator.onLine) flush(); }, 30000);
 
 (async () => {
   idb = await openDb();
+  paintSettings();
   await paintStatus();
   await renderRecent();
   checkVersion();
