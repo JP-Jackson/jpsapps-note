@@ -1,0 +1,16 @@
+Write the splash wordmark with one wipe, not four
+
+Splitting "Note" into a span per letter clipped each glyph at its own
+advance width. A script face draws ink well past that -- which is how its
+letters connect -- so every reveal sliced the glyph it was revealing and
+let the neighbour's ink through, and the word appeared to write over
+itself.
+
+A single left-to-right clip across the whole word fixes it and is closer
+to the idea anyway: a pen moving across, rather than four letters taking
+turns to appear. The negative insets keep the tail of the "e" and the
+descenders whole, and the timing still lands where the old animation did,
+so the domain and the stillness before the clear are unchanged.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01GqnDEhX9CA85JaHvzYVeWW

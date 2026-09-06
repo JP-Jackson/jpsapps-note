@@ -320,14 +320,14 @@
   #splash .halo{stroke:var(--halo);stroke-width:12;filter:blur(6px)}
   #splash .spark{stroke:#fff;stroke-width:5;filter:drop-shadow(0 0 7px var(--halo))}
   #splash .word{text-align:center}
+  /* One continuous left-to-right reveal across the whole word — a pen moving, not
+     four letters appearing. It must be a single clip: splitting the word into
+     per-letter spans clips each glyph at its own advance width, and a script face
+     draws ink well past that, so the letters came out sliced and overlapping.
+     A clip rather than stroke-dashoffset because these are filled glyph outlines,
+     and dash-animating an outline traces a letter's edge instead of writing it. */
   #splash .word .n{font-family:var(--font-brand);font-size:46px;font-weight:700;
-    color:#fff;line-height:1.1;display:flex;justify-content:center}
-  /* Each letter is revealed left to right rather than faded in, so it reads as being
-     written rather than appearing. A clip is used instead of stroke-dashoffset
-     because these are real glyph outlines: dash-animating a contour traces the
-     OUTSIDE of a letter, which looks like tracing, not handwriting. */
-  #splash .word .n span{display:inline-block;clip-path:inset(0 100% -20% 0);
-    will-change:clip-path}
+    color:#fff;line-height:1.15;clip-path:inset(0 100% -25% 0);will-change:clip-path}
   #splash .word .d{font-family:var(--font-mono);font-size:9.5px;font-weight:600;
     letter-spacing:.22em;color:rgba(255,255,255,.5);margin-top:9px;opacity:0}
 
@@ -339,14 +339,10 @@
   .go .flash{animation:bloom 1.70s linear 1.24s forwards}
   .go .mk{animation:breath 1.70s linear 1.27s forwards;transform-origin:60px 60px}
   .go #wash{animation:wash 1.30s linear 1.30s forwards}
-  /* Staggered so the strokes overlap slightly, the way a hand does not stop between
-     letters. Four letters from 2.05s, the last finishing at 2.81s — the same beat the
-     name previously landed on, so the rest of the sequence is untouched. */
-  .go .word .n span{animation:writeIn .34s cubic-bezier(.35,0,.25,1) forwards}
-  .go .word .n span:nth-child(1){animation-delay:2.05s}
-  .go .word .n span:nth-child(2){animation-delay:2.24s}
-  .go .word .n span:nth-child(3){animation-delay:2.43s}
-  .go .word .n span:nth-child(4){animation-delay:2.62s}
+  /* 2.05s to 2.85s, so the domain still fades in behind the last stroke and the
+     stillness before the clear is unchanged. Eased out, the way a hand slows at the
+     end of a word. */
+  .go .word .n{animation:writeIn .80s cubic-bezier(.3,0,.35,1) 2.05s forwards}
   .go .word .d{animation:fade .60s ease-out 2.75s forwards}
   .go{animation:clear .36s ease-in 3.85s forwards}
 
@@ -354,8 +350,8 @@
   @keyframes draw{to{stroke-dashoffset:0}}
   @keyframes chase{to{stroke-dashoffset:calc(0px - var(--kl,400) * 1px)}}
   @keyframes rise{to{opacity:1;transform:translateY(0)}}
-  /* -20% at the bottom keeps descenders from being clipped mid-stroke. */
-  @keyframes writeIn{from{clip-path:inset(0 100% -20% 0)}to{clip-path:inset(0 -6% -20% 0)}}
+  /* Negative insets keep the tail of the "e" and any overhang from being cut. */
+  @keyframes writeIn{from{clip-path:inset(0 100% -25% 0)}to{clip-path:inset(0 -12% -25% 0)}}
   @keyframes bloom{
     0%{opacity:0;stroke-width:4;filter:drop-shadow(0 0 0 var(--glow-0))}
     34%{opacity:1;stroke-width:8;filter:drop-shadow(0 0 30px var(--glow))}
@@ -370,7 +366,7 @@
   @media (prefers-reduced-motion:reduce){
     .go *{animation:none!important}
     #splash .tile,#splash .word .n,#splash .word .d{opacity:1!important;transform:none!important}
-    #splash .word .n span{clip-path:none!important;animation:none!important}
+    #splash .word .n{clip-path:none!important;animation:none!important}
     #splash .mk path,#splash .kl{stroke-dashoffset:0!important}
     #splash .halo,#splash .spark,#splash .flash,#wash{opacity:0!important}
     .go{animation:clear .3s linear 1s forwards!important}
@@ -398,7 +394,7 @@
     </g></g>
   </svg>
   <div class="word">
-    <div class="n" aria-label="Note"><span>N</span><span>o</span><span>t</span><span>e</span></div>
+    <div class="n">Note</div>
     <div class="d">JPSAPPS.COM</div>
   </div>
 </div>
