@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#16222E">
-<meta name="app-version" content="1.6.0">
+<meta name="app-version" content="1.7.0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Note">
@@ -316,6 +316,60 @@
   .rel.now .v{color:var(--blue)}
   .rel .w{font-size:14px;line-height:1.4}
 
+  /* ---------- add a thing ---------- */
+  #addThing{position:fixed;inset:0;z-index:42;background:var(--bg);overflow-y:auto;padding:0 0 40px}
+  #addThing .bar{background:var(--navy);color:#fff;display:flex;align-items:center;gap:12px;
+    padding:12px 16px;padding-top:calc(12px + env(safe-area-inset-top));position:sticky;top:0}
+  #addThing .bar button{background:none;border:0;color:#fff;font:600 15px var(--font-ui);
+    cursor:pointer;padding:4px 0}
+  #addThing .body{max-width:560px;margin:0 auto;padding:16px}
+  #addThing input{width:100%;border:1px solid var(--line);border-radius:10px;
+    background:var(--card);color:var(--ink);padding:14px;
+    font:400 17px var(--font-ui);margin-bottom:4px}
+
+  /* ---------- the worked example ----------
+     Shown only when there is nothing yet: it demonstrates the loop rather than
+     describing it, which is the part that is hard to explain in a sentence. */
+  .demo{background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:14px;margin-bottom:14px;overflow:hidden}
+  .demo h3{font:600 11px/1 var(--font-mono);letter-spacing:.1em;text-transform:uppercase;
+    color:var(--ink-2);margin:0 0 12px}
+  .demo .step{display:flex;gap:10px;align-items:flex-start;margin-bottom:11px;
+    opacity:0;transform:translateY(6px);animation:demoIn .5s ease-out forwards}
+  .demo .step:nth-child(2){animation-delay:.15s}
+  .demo .step:nth-child(3){animation-delay:1.05s}
+  .demo .step:nth-child(4){animation-delay:1.95s}
+  .demo .step:nth-child(5){animation-delay:2.85s}
+  .demo .n{width:22px;height:22px;border-radius:50%;background:var(--blue);color:#fff;
+    font:700 12px/22px var(--font-ui);text-align:center;flex:none}
+  .demo .t{flex:1;font-size:14px;line-height:1.4;min-width:0}
+  .demo .t b{display:block;font-weight:700}
+  .demo .t span{color:var(--ink-2)}
+  .demo .card{background:var(--bg);border:1px solid var(--line);border-radius:8px;
+    padding:8px 10px;margin-top:6px;font:400 13px/1.45 var(--font-ui)}
+  .demo .card .k{font:500 10px/1.6 var(--font-mono);letter-spacing:.06em;
+    text-transform:uppercase;color:var(--ink-2)}
+  @keyframes demoIn{to{opacity:1;transform:translateY(0)}}
+  @media (prefers-reduced-motion:reduce){
+    .demo .step{animation:none!important;opacity:1!important;transform:none!important}
+  }
+
+  /* ---------- subject read view ---------- */
+  .subjhead{margin-bottom:14px}
+  .subjhead h1{font:700 26px/1.15 var(--font-ui);margin:0 0 7px;word-wrap:break-word}
+  .badges{display:flex;gap:6px;flex-wrap:wrap}
+  .badge2{font:500 10px/1 var(--font-mono);letter-spacing:.08em;text-transform:uppercase;
+    color:var(--ink-2);border:1px solid var(--line);border-radius:99px;padding:5px 9px}
+  /* Read view is a spec sheet, not a form: values in the reading face, labels quiet
+     and monospaced, rules instead of boxes. */
+  .spec{border-top:1px solid var(--line);margin:0 0 16px}
+  .spec .r{display:grid;grid-template-columns:40% 1fr;gap:12px;
+    padding:11px 2px;border-bottom:1px solid var(--line)}
+  .spec .k{font:500 11px/1.5 var(--font-mono);letter-spacing:.06em;text-transform:uppercase;
+    color:var(--ink-2)}
+  .spec .v{font-size:15px;line-height:1.45;word-wrap:break-word}
+  .spec .v.none{color:var(--ink-2);font-style:italic}
+
   /* ---------- subjects ---------- */
   #subject{position:fixed;inset:0;z-index:40;background:var(--bg);overflow-y:auto;padding:0 0 40px}
   #subject .bar{background:var(--navy);color:#fff;display:flex;align-items:center;gap:12px;
@@ -552,6 +606,37 @@
     <strong style="font-size:15px">Entry</strong>
   </div>
   <div class="body" id="detailBody"></div>
+</div>
+
+<div id="addThing" hidden>
+  <div class="bar">
+    <button id="addBack">&lsaquo; Cancel</button>
+    <strong style="font-size:15px">Add a thing</strong>
+  </div>
+  <div class="body">
+    <p class="empty" style="padding-top:0">A <em>thing</em> is anything you want a history for —
+      a truck, a compressor, the AC unit. Notes you log against it build up its record.</p>
+
+    <h2>What is it called?</h2>
+    <input id="newName" placeholder="Compressor 2" autocomplete="off">
+
+    <h2>What kind?</h2>
+    <div class="chips" id="newType">
+      <button class="chip" data-type="equipment" aria-pressed="true">Equipment</button>
+      <button class="chip" data-type="vehicle"   aria-pressed="false">Vehicle</button>
+      <button class="chip" data-type="generic"   aria-pressed="false">Other</button>
+    </div>
+    <p class="empty" id="typeHint" style="padding-top:0"></p>
+
+    <h2>Where does it belong?</h2>
+    <div class="chips" id="newCtx">
+      <button class="chip" data-nctx="work"     aria-pressed="true">Work</button>
+      <button class="chip" data-nctx="home"     aria-pressed="false">Home</button>
+      <button class="chip" data-nctx="vehicles" aria-pressed="false">Vehicles</button>
+    </div>
+
+    <button class="btn" id="createThing" style="margin-top:6px">Add it</button>
+  </div>
 </div>
 
 <div id="subject" hidden>
@@ -1244,14 +1329,10 @@ document.addEventListener("click", (e) => {
 });
 $("detailBack").addEventListener("click", closeDetail);
 
-function closeDetail() {
-  $("detail").hidden = true;
-  current = null;
-  refreshCurrentView();
-}
+function closeDetail() { closeOverlay("detail"); }
 
 async function openDetail(id) {
-  $("detail").hidden = false;
+  openOverlay("detail");
   $("detailBody").innerHTML = '<div class="empty">Loading…</div>';
   try {
     const r = await fetch("/api/entries/" + encodeURIComponent(id));
@@ -1363,6 +1444,47 @@ async function toggleOpen() {
   }
 }
 
+/* ------------------------------------------------------------------ back
+   A phone's back gesture must undo the last thing you did, not quit. Without a
+   history entry behind each overlay, Android's back closes the whole app from a
+   detail screen — which reads as a crash, not a navigation.
+
+   Every overlay and every tab pushes one entry, so back unwinds exactly one step and
+   only leaves the app from the capture screen with nothing open. Closing an overlay
+   by its own Back button calls history.back() as well, so both routes go through the
+   same path and the stack can never drift out of step with what is on screen. */
+// Order matters: the topmost open one is what back should close, so newer/stacked
+// sheets come first. Miss one here and back silently falls through to leaving the app.
+const OVERLAYS = ["addThing", "detail", "subject", "settings"];
+
+function openOverlay(id) {
+  $(id).hidden = false;
+  history.pushState({ overlay: id }, "");
+}
+
+function closeOverlay(id) {
+  // Let popstate do the hiding, so the button and the gesture behave identically.
+  if (history.state && history.state.overlay === id) history.back();
+  else $(id).hidden = true;
+}
+
+function topOverlay() {
+  return OVERLAYS.find((id) => !$(id).hidden) || null;
+}
+
+addEventListener("popstate", (e) => {
+  const open = topOverlay();
+  if (open) {
+    $(open).hidden = true;
+    if (open === "subject") currentSubject = null;
+    if (open === "detail") current = null;
+    refreshCurrentView();
+    return;
+  }
+  const want = (e.state && e.state.view) || "capture";
+  if (want !== view) applyView(want);
+});
+
 /* ------------------------------------------------------------------ routing */
 let view = "capture";
 function refreshCurrentView() {
@@ -1371,7 +1493,7 @@ function refreshCurrentView() {
   else if (view === "subjects") loadSubjects();
   else if (view === "capture") loadRecent();
 }
-function go(next) {
+function applyView(next) {
   view = next;
   ["capture", "log", "open", "subjects", "search"].forEach((s) => {
     $("view-" + s).hidden = s !== next;
@@ -1386,6 +1508,13 @@ function go(next) {
   refreshCurrentView();
   if (next === "search") $("q").focus();
 }
+
+function go(next) {
+  if (next === view) return;
+  history.pushState({ view: next }, "");
+  applyView(next);
+}
+
 document.querySelector("nav").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-view]");
   if (b) go(b.dataset.view);
@@ -1395,6 +1524,7 @@ document.querySelector("nav").addEventListener("click", (e) => {
    One line per release, newest first. Kept deliberately short: it exists to answer
    "did the thing I asked for actually ship", not to be release notes. */
 const RELEASES = [
+  ["1.7.0", "Adding a thing is a real screen; read and edit split; Android back works"],
   ["1.6.0", "Capture rebuilt for one-handed use; places suggested by location; version history"],
   ["1.5.0", "Things: details, history, templates and bulk import"],
   ["1.4.0", "Wordmark in Caveat; the splash writes it"],
@@ -1441,7 +1571,23 @@ async function loadSubjects() {
   const node = $("subjectList");
   node.replaceChildren();
   if (!subjects.length) {
-    node.innerHTML = '<div class="empty">Nothing yet. Add a truck, a compressor, the AC unit…</div>';
+    // Demonstrate the loop rather than describing it — what a "thing" is for only
+    // makes sense once you see a note landing in its history.
+    node.innerHTML =
+      '<div class="demo"><h3>How this works</h3>' +
+      '<div class="step"><span class="n">1</span><span class="t"><b>Add the thing</b>' +
+        '<span>A truck, a compressor, the AC unit — anything you want a record of.</span>' +
+        '<span class="card"><span class="k">equipment · work</span><br>Compressor 2</span></span></div>' +
+      '<div class="step"><span class="n">2</span><span class="t"><b>Fill in what matters</b>' +
+        '<span>The type decides what it asks for. Add your own fields any time.</span>' +
+        '<span class="card"><span class="k">make</span> Ingersoll Rand<br>' +
+        '<span class="k">voltage / phase</span> 480V 3ph</span></span></div>' +
+      '<div class="step"><span class="n">3</span><span class="t"><b>Tag it while capturing</b>' +
+        '<span>It appears as a chip above Save when you are in that context.</span></span></div>' +
+      '<div class="step"><span class="n">4</span><span class="t"><b>The history builds itself</b>' +
+        '<span>Every note tagged to it lands here — so next time the last fix is in front of you.</span>' +
+        '<span class="card">Contactor pitted, unloader sticking — replaced, held at 480V</span></span></div>' +
+      "</div>";
     return;
   }
   subjects.forEach((s) => {
@@ -1459,14 +1605,11 @@ document.addEventListener("click", (e) => {
   const row = e.target.closest("[data-subject-id]");
   if (row) openSubject(row.dataset.subjectId);
 });
-$("subjectBack").addEventListener("click", () => {
-  $("subject").hidden = true;
-  currentSubject = null;
-  if (view === "subjects") loadSubjects();
-});
+$("subjectBack").addEventListener("click", () => closeOverlay("subject"));
 
 async function openSubject(id) {
-  $("subject").hidden = false;
+  editing = false;
+  if ($("subject").hidden) openOverlay("subject");
   $("subjectBody").innerHTML = '<div class="empty">Loading…</div>';
   await loadTemplates();
   try {
@@ -1486,11 +1629,54 @@ function attrRow(key, value) {
     '<button class="rm" title="Remove">&times;</button></div>';
 }
 
+let editing = false;
+
 function renderSubject() {
+  return editing ? renderSubjectEdit() : renderSubjectRead();
+}
+
+/**
+ * Read view — a spec sheet, not a form.
+ *
+ * This is the screen you open standing in front of the machine, so it has to be
+ * scannable: values in the reading face, labels quiet, rules instead of input boxes.
+ * A page full of text fields makes every value look provisional and doubles the ink.
+ */
+function renderSubjectRead() {
   const s = currentSubject;
   const photos = (s.photos || [])
     .map((p) => '<img class="photo" src="' + esc(p.url) + '" alt="" onerror="this.remove()">').join("");
 
+  const rows = s.attributes.length
+    ? s.attributes.map((a) =>
+        '<div class="r"><div class="k">' + esc(a.key) + "</div>" +
+        '<div class="v' + (a.value ? "" : " none") + '">' +
+        esc(a.value || "not recorded") + "</div></div>").join("")
+    : '<div class="r"><div class="k">details</div><div class="v none">nothing recorded yet</div></div>';
+
+  const history = s.entries.length
+    ? s.entries.map((e) =>
+        '<button class="entry' + (e.is_open ? " open" : "") + '" data-id="' + esc(e.id) + '">' +
+        '<span class="when">' + esc(fmtFull(e.created_at)) + "</span>" +
+        '<span class="what">' + esc(e.body || "(photo)") + "</span></button>").join("")
+    : '<div class="empty">Nothing logged against this yet. Capture a note with it selected and it lands here.</div>';
+
+  $("subjectBody").innerHTML =
+    photos +
+    '<div class="subjhead"><h1>' + esc(s.name) + "</h1>" +
+      '<div class="badges"><span class="badge2">' + esc(s.type) + "</span>" +
+      '<span class="badge2">' + esc(s.context) + "</span>" +
+      (s.archived_at ? '<span class="badge2">archived</span>' : "") +
+      '<span class="badge2">' + s.entries.length + " logged</span></div></div>" +
+    '<div class="spec">' + rows + "</div>" +
+    '<div class="actions"><button class="btn sm" id="editSubject">Edit</button></div>' +
+    "<h2>History</h2>" + history;
+
+  $("editSubject").addEventListener("click", () => { editing = true; renderSubject(); });
+}
+
+function renderSubjectEdit() {
+  const s = currentSubject;
   // Start from the template so the fields worth filling in are already listed,
   // then overlay whatever has actually been saved.
   const tpl = (templates && templates[s.type]) || [];
@@ -1499,15 +1685,7 @@ function renderSubject() {
     .filter((k, i, arr) => arr.indexOf(k) === i);
   const rows = keys.map((k) => attrRow(k, saved.get(k))).join("");
 
-  const history = s.entries.length
-    ? s.entries.map((e) =>
-        '<button class="entry' + (e.is_open ? " open" : "") + '" data-id="' + esc(e.id) + '">' +
-        '<span class="when">' + esc(fmtFull(e.created_at)) + "</span>" +
-        '<span class="what">' + esc(e.body || "(photo)") + "</span></button>").join("")
-    : '<div class="empty">Nothing logged against this yet.</div>';
-
   $("subjectBody").innerHTML =
-    photos +
     '<input id="subjName" value="' + esc(s.name) + '" style="width:100%;border:1px solid var(--line);' +
       'border-radius:10px;background:var(--card);color:var(--ink);padding:12px;' +
       'font:700 19px var(--font-ui);margin-bottom:10px">' +
@@ -1520,10 +1698,10 @@ function renderSubject() {
     '<button class="btn ghost sm" id="addAttr" style="margin-bottom:12px">+ Add field</button>' +
     '<div class="actions">' +
       '<button class="btn sm" id="saveSubject">Save</button>' +
-      '<button class="btn sm ghost" id="archiveSubject">' +
-        (s.archived_at ? "Unarchive" : "Archive") + "</button>" +
+      '<button class="btn sm ghost" id="cancelEdit">Cancel</button>' +
     "</div>" +
-    "<h2>History</h2>" + history;
+    '<div class="actions"><button class="btn sm ghost" id="archiveSubject">' +
+      (s.archived_at ? "Unarchive" : "Archive") + "</button></div>";
 
   $("addAttr").addEventListener("click", () => {
     $("attrs").insertAdjacentHTML("beforeend", attrRow("", ""));
@@ -1540,12 +1718,13 @@ function renderSubject() {
       x.setAttribute("aria-pressed", String(x.dataset.subjCtx === currentSubject.context)));
   });
   $("saveSubject").addEventListener("click", saveSubject);
+  $("cancelEdit").addEventListener("click", () => { editing = false; openSubject(s.id); });
   $("archiveSubject").addEventListener("click", async () => {
     await fetch("/api/subjects/" + encodeURIComponent(s.id), {
       method: "PATCH", headers: { "content-type": "application/json" },
       body: JSON.stringify({ archived: !s.archived_at }),
     });
-    $("subject").hidden = true;
+    closeOverlay("subject");
     loadSubjects();
   });
 }
@@ -1571,25 +1750,63 @@ async function saveSubject() {
     if (!r.ok) throw new Error();
     currentSubject = await r.json();
     currentSubject.photos = currentSubject.photos || [];
+    editing = false;                     // saving is the end of editing
     renderSubject();
     loadSubjects();
   } catch { err("Could not save that."); }
 }
 
-/* ---- adding one ---- */
+/* ---- adding one ----
+   Three prompt() boxes in a row gave no way back, no way to see what you had already
+   answered, and no idea what the choices meant. This is a screen: the options are
+   visible, the type explains what it will ask for, and cancelling is a real action. */
+let newType = "equipment", newCtx = "work";
+
+const TYPE_HINT = {
+  equipment: "Asks for make, model, serial, voltage and location.",
+  vehicle: "Asks for make, model, year, VIN, plate, oil and tyre size.",
+  generic: "Asks for make, model and notes — fine for most things.",
+};
+
 $("addSubject").addEventListener("click", async () => {
   await loadTemplates();
-  const name = prompt("What is it called?");
-  if (!name || !name.trim()) return;
-  const type = (prompt("Type: generic, vehicle or equipment", "generic") || "generic").toLowerCase();
-  const ctx = (prompt("Context: work, home or vehicles", context) || context).toLowerCase();
+  newCtx = context;                      // whatever you are capturing in right now
+  $("newName").value = "";
+  paintNewPickers();
+  openOverlay("addThing");
+  $("newName").focus();
+});
+$("addBack").addEventListener("click", () => closeOverlay("addThing"));
+
+function paintNewPickers() {
+  document.querySelectorAll("[data-type]").forEach((b) =>
+    b.setAttribute("aria-pressed", String(b.dataset.type === newType)));
+  document.querySelectorAll("[data-nctx]").forEach((b) =>
+    b.setAttribute("aria-pressed", String(b.dataset.nctx === newCtx)));
+  $("typeHint").textContent = TYPE_HINT[newType] || "";
+}
+
+$("newType").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-type]");
+  if (b) { newType = b.dataset.type; paintNewPickers(); }
+});
+$("newCtx").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-nctx]");
+  if (b) { newCtx = b.dataset.nctx; paintNewPickers(); }
+});
+
+$("createThing").addEventListener("click", async () => {
+  const name = $("newName").value.trim();
+  if (!name) { $("newName").focus(); err("Give it a name first."); return; }
+  err("");
   try {
     const r = await fetch("/api/subjects", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: name.trim(), type, context: ctx }),
+      body: JSON.stringify({ name, type: newType, context: newCtx }),
     });
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || "failed");
+    closeOverlay("addThing");
     await loadSubjects();
     openSubject(d.id);
   } catch (e) { err("Could not add that: " + e.message); }
@@ -1704,7 +1921,7 @@ $("fontPick").addEventListener("click", (e) => {
 });
 
 $("gear").addEventListener("click", async () => {
-  $("settings").hidden = false;
+  openOverlay("settings");
   paintSettings();
   let server = "unreachable";
   try { server = "v" + (await (await fetch("/api/health")).json()).version; } catch {}
@@ -1713,7 +1930,7 @@ $("gear").addEventListener("click", async () => {
     "<dt>server</dt><dd>" + esc(server) + "</dd>";
   renderHistory();
 });
-$("settingsBack").addEventListener("click", () => { $("settings").hidden = true; });
+$("settingsBack").addEventListener("click", () => closeOverlay("settings"));
 
 /* ------------------------------------------------------------------ splash
    §10: plays on cold start only, skipped on reload by a sessionStorage flag. The app
@@ -1757,6 +1974,7 @@ setInterval(() => { if (navigator.onLine) flush(); }, 30000);
   loadSubjects();          // also paints the capture screen's subject chips
   $("thumb").hidden = false;
   document.body.classList.add("capturing");
+  history.replaceState({ view: "capture" }, "");
   loadPlaces().then(suggestPlace);
   flush();
   if ("serviceWorker" in navigator) {
