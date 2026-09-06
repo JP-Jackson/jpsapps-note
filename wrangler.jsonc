@@ -1,0 +1,36 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "note",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-06",
+  "observability": { "enabled": true },
+
+  // note.jpsapps.com is bound after the zone is live in the jpsappshq account.
+  // Uncomment once DNS is confirmed; until then `wrangler deploy` publishes to
+  // the workers.dev subdomain, which is enough to prove the Worker runs.
+  // "routes": [{ "pattern": "note.jpsapps.com", "custom_domain": true }],
+
+  "assets": { "directory": "public", "binding": "ASSETS" },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "note",
+      "database_id": "PLACEHOLDER_SET_AFTER_CREATE",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  "r2_buckets": [{ "binding": "PHOTOS", "bucket_name": "note-photos" }],
+
+  "vars": {
+    "ENVIRONMENT": "production",
+    // Zero Trust team domain, e.g. "jpsapps.cloudflareaccess.com"
+    "ACCESS_TEAM_DOMAIN": "",
+    // Access application Audience (AUD) tag. Not a secret.
+    "ACCESS_AUD": "",
+    // Only these emails may be auto-provisioned as users. Comma separated.
+    "ALLOWED_EMAILS": "jpsappshq@gmail.com",
+    "IMG_BASE": "https://img.jpsapps.com"
+  }
+}

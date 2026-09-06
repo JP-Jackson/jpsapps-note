@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en" data-app="note">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Note</title>
+<style>
+  :root{
+    --navy:#16222E; --blue:#2C7BC4; --blue-deep:#1B5486;
+    --bg:#E6E9EC; --card:#FFF; --ink:#121A22; --ink-2:#586573; --line:#D2D8DE;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{ --bg:#171B20; --card:#222831; --ink:#E6EBF0; --ink-2:#94A1AE; --line:#323A45; --blue:#5AA9EE; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:400 16px/1.5 Archivo,system-ui,-apple-system,Segoe UI,sans-serif}
+  header{background:var(--navy);color:#fff;padding:16px 20px;font-weight:700;letter-spacing:.02em}
+  main{max-width:640px;margin:0 auto;padding:20px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:20px;margin-bottom:16px}
+  h1{font-size:20px;margin:0 0 4px}
+  .muted{color:var(--ink-2);font-size:14px;margin:0}
+  dl{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;margin:16px 0 0}
+  dt{color:var(--ink-2);font:500 12px/1.6 "IBM Plex Mono",ui-monospace,monospace;text-transform:uppercase}
+  dd{margin:0;font:400 14px/1.6 "IBM Plex Mono",ui-monospace,monospace;word-break:break-all}
+  .pill{display:inline-block;padding:2px 10px;border-radius:99px;font:500 12px/1.8 "IBM Plex Mono",monospace}
+  .ok{background:#1f7a4d22;color:#1f7a4d} .bad{background:#d9483c22;color:#d9483c}
+  @media (prefers-color-scheme:dark){ .ok{color:#5ad699} .bad{color:#ff8478} }
+</style>
+</head>
+<body>
+<header>NOTE</header>
+<main>
+  <div class="card">
+    <h1>Phase 1 — foundation</h1>
+    <p class="muted">Worker, D1, R2 and auth. The capture screen arrives in phase 2.</p>
+    <dl id="out"><dt>status</dt><dd>checking…</dd></dl>
+  </div>
+</main>
+<script>
+const out = document.getElementById('out');
+const row = (k, v) => `<dt>${k}</dt><dd>${v}</dd>`;
+const pill = (ok, t) => `<span class="pill ${ok?'ok':'bad'}">${t}</span>`;
+
+(async () => {
+  let html = '';
+  try {
+    const h = await (await fetch('/api/health')).json();
+    html += row('database', pill(h.ok, h.ok ? `OK · ${h.tables} tables` : 'NO SCHEMA'));
+    html += row('access', pill(h.accessConfigured, h.accessConfigured ? 'CONFIGURED' : 'NOT SET'));
+    html += row('env', h.environment);
+  } catch (e) {
+    html += row('database', pill(false, 'UNREACHABLE'));
+  }
+  try {
+    const r = await fetch('/api/me');
+    if (r.ok) {
+      const me = await r.json();
+      html += row('signed in', pill(true, me.email));
+      html += row('user_id', me.id);
+    } else {
+      html += row('signed in', pill(false, (await r.json()).error || r.status));
+    }
+  } catch (e) {
+    html += row('signed in', pill(false, 'ERROR'));
+  }
+  out.innerHTML = html;
+})();
+</script>
+</body>
+</html>

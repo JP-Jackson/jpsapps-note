@@ -1,0 +1,8 @@
+# Copy to .dev.vars for local development (`wrangler dev`).
+# .dev.vars is gitignored — it never leaves your machine.
+#
+# There is no Cloudflare Access in front of `wrangler dev`, so local requests
+# carry no Access JWT. DEV_EMAIL stands in for the verified identity. It is
+# ignored unless ENVIRONMENT=development, so it cannot be reached in production.
+ENVIRONMENT=development
+DEV_EMAIL=jpsappshq@gmail.com
