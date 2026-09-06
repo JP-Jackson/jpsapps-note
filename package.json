@@ -1,6 +1,6 @@
 {
   "name": "jpsapps-note",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Note — a capture-first day log for work and home",
   "scripts": {
     "dev": "wrangler dev",
