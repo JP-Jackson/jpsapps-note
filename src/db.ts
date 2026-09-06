@@ -21,6 +21,17 @@ export interface UserRow {
   created_at: number;
 }
 
+/**
+ * Row cost of the pre-session lookups, which run before a user_id exists and so
+ * cannot tally into an instance meter. Returned to the caller and handed back with
+ * `absorb()` once the Db is built, so the auth query is counted like any other.
+ * Deliberately plain numbers, not a D1 type — nothing D1-shaped leaves this file.
+ */
+export interface QueryCost {
+  rows_read: number;
+  rows_written: number;
+}
+
 export interface UsageTotals {
   rows_read: number;
   rows_written: number;
@@ -40,10 +51,14 @@ interface Meter {
  * no external dependency. It matters: since 1 September 2026 D1 queries on the free
  * plan fail outright past the daily row limits, so this is a cliff, not a throttle.
  */
-function readMeta(meter: Meter, meta: D1Meta | undefined): void {
+function readMeta(meter: Meter | QueryCost, meta: D1Meta | undefined): void {
   if (!meta) return;
   meter.rows_read += meta.rows_read ?? 0;
   meter.rows_written += meta.rows_written ?? 0;
+}
+
+function noCost(): QueryCost {
+  return { rows_read: 0, rows_written: 0 };
 }
 
 export class Db {
@@ -88,11 +103,16 @@ export class Db {
     return { ok: n > 0, tables: n };
   }
 
-  static async findUserByEmail(d1: D1Database, email: string): Promise<UserRow | null> {
+  static async findUserByEmail(
+    d1: D1Database,
+    email: string,
+    cost: QueryCost = noCost(),
+  ): Promise<UserRow | null> {
     const res = await d1
       .prepare("SELECT id, email, display_name, created_at FROM users WHERE email = ?")
       .bind(email.toLowerCase())
       .all<UserRow>();
+    readMeta(cost, res.meta);
     return res.results[0] ?? null;
   }
 
@@ -100,6 +120,7 @@ export class Db {
     d1: D1Database,
     email: string,
     displayName: string | null = null,
+    cost: QueryCost = noCost(),
   ): Promise<UserRow> {
     const row: UserRow = {
       id: newId(),
@@ -107,12 +128,13 @@ export class Db {
       display_name: displayName,
       created_at: Date.now(),
     };
-    await d1
+    const res = await d1
       .prepare(
         "INSERT INTO users (id, email, display_name, created_at) VALUES (?, ?, ?, ?)",
       )
       .bind(row.id, row.email, row.display_name, row.created_at)
       .run();
+    readMeta(cost, res.meta);
     return row;
   }
 
@@ -127,14 +149,16 @@ export class Db {
     d1: D1Database,
     email: string,
     allowedEmails: string[],
-  ): Promise<UserRow | null> {
-    const existing = await Db.findUserByEmail(d1, email);
-    if (existing) return existing;
+  ): Promise<{ user: UserRow | null; cost: QueryCost }> {
+    const cost = noCost();
+
+    const existing = await Db.findUserByEmail(d1, email, cost);
+    if (existing) return { user: existing, cost };
 
     const allowed = allowedEmails.map((e) => e.trim().toLowerCase()).filter(Boolean);
-    if (!allowed.includes(email.toLowerCase())) return null;
+    if (!allowed.includes(email.toLowerCase())) return { user: null, cost };
 
-    return Db.createUser(d1, email);
+    return { user: await Db.createUser(d1, email, null, cost), cost };
   }
 
   // -------------------------------------------------------------- user-scoped
@@ -159,6 +183,16 @@ export class Db {
       if (r.metric in totals) totals[r.metric as keyof UsageTotals] = r.amount;
     }
     return totals;
+  }
+
+  /**
+   * Fold in the cost of queries that ran before this Db existed — the auth lookup
+   * on every request. Without this the meter undercounts by the one query that
+   * runs most often, and §4's row-limit cliff is exactly what it must not miss.
+   */
+  absorb(cost: QueryCost): void {
+    this.meter.rows_read += cost.rows_read;
+    this.meter.rows_written += cost.rows_written;
   }
 
   /** Record Workers AI spend. Added to the tally, flushed with everything else. */

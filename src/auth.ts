@@ -18,12 +18,14 @@
  */
 
 import type { Env } from "./env";
-import { Db, type UserRow } from "./db";
+import { Db, type QueryCost, type UserRow } from "./db";
 
 export interface Session {
   userId: string;
   email: string;
   user: UserRow;
+  /** Row cost of the lookup that built this session, for the caller to meter. */
+  cost: QueryCost;
 }
 
 export class AuthError extends Error {
@@ -150,10 +152,10 @@ export async function authenticate(request: Request, env: Env): Promise<Session>
   }
 
   const allowed = env.ALLOWED_EMAILS.split(",");
-  const user = await Db.resolveUser(env.DB, email, allowed);
+  const { user, cost } = await Db.resolveUser(env.DB, email, allowed);
   if (!user) throw new AuthError(`${email} is not provisioned for this app`, 403);
 
-  return { userId: user.id, email: user.email, user };
+  return { userId: user.id, email: user.email, user, cost };
 }
 
 function readCookie(header: string | null, name: string): string | null {

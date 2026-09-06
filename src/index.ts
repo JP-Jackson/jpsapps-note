@@ -40,6 +40,9 @@ app.use("/api/*", async (c, next) => {
   try {
     const session = await authenticate(c.req.raw, c.env);
     const db = new Db(c.env.DB, session.userId);
+    // The auth lookup ran before this Db existed; count it here so the busiest
+    // query on the app is not invisible to the meter.
+    db.absorb(session.cost);
     c.set("session", session);
     c.set("db", db);
 

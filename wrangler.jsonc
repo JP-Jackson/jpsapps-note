@@ -16,7 +16,7 @@
     {
       "binding": "DB",
       "database_name": "note",
-      "database_id": "PLACEHOLDER_SET_AFTER_CREATE",
+      "database_id": "416aa6a6-0c76-4f21-88eb-56a73c3d25bc",
       "migrations_dir": "migrations"
     }
   ],

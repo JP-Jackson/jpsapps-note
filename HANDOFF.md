@@ -1,11 +1,22 @@
 # Note — phase 1 handoff
 
-Written 6 Sep 2026. Delete this once phase 1 is closed out.
+Written 6 Sep 2026. Updated 6 Sep 2026 after the deploy. Delete this once phase 1 is
+closed out.
 
 ## Where things stand
 
-Phase 1 **code** is complete, verified locally, committed and pushed to
-`claude/note-phase-1-foundation-ifovxo`. Nothing has been created in Cloudflare yet.
+Phase 1 code is complete and **deployed**. The Cloudflare resources exist.
+
+| Thing | Value |
+|---|---|
+| Worker | `https://note.jpsapps.workers.dev` |
+| D1 database | `note` — `416aa6a6-0c76-4f21-88eb-56a73c3d25bc` (ENAM) |
+| R2 bucket | `note-photos` |
+| Account | jpsappshq@gmail.com — `bf9f771dae485c448a5740c54ca5771d` |
+
+Verified live: `/api/health` → `{ok:true, tables:14}` (11 app tables + `d1_migrations`
++ two `_cf_*` internals; remote reports more than local's 12). `/api/me` → 401 with no
+token, 403 with a junk token. Static shell → 200.
 
 `NOTE_SPEC.md` is the authority. Where it states a decision and a reason, follow it
 rather than substituting a different approach. Build **phase 1 only** — no capture
@@ -30,7 +41,8 @@ screen, views, or subjects.
 
 1. **`user_id` on every table from day one** (spec §4). Only `users` (its `id` is the
    user id) and `subject_templates` (global reference data) are exempt. Verified by
-   querying `pragma_table_info` on every table.
+   querying `pragma_table_info` on every table — re-verified against **remote** D1
+   after the migration applied.
 2. **All D1 access lives in `src/db.ts`.** Nothing else imports `D1Database` or writes
    SQL. `Db` is constructed with a user id in middleware; handlers never see one.
 
@@ -42,28 +54,54 @@ screen, views, or subjects.
 - Unlisted email → 403, and **no** user row created
 - `tsc --noEmit` clean
 
-Unverified: the usage meter. Local D1 doesn't report `rows_read`/`rows_written` in
-query metadata, so it reads zero locally. **Confirm it populates against remote D1.**
+## The usage meter — resolved, and it needed a fix
+
+Remote D1 **does** report `rows_read`/`rows_written` in query metadata; local D1 does
+not, which is why this could not be checked before deploying. Verified against the real
+remote database with `wrangler dev --remote`.
+
+Two defects turned up in the wiring, both now fixed:
+
+1. The pre-session lookups (`findUserByEmail`, `createUser`, via `resolveUser`) are
+   static — they run before a `user_id` exists — and never tallied. That is the one
+   query on **every** authenticated request, so the meter was blind to its busiest
+   caller. §4 calls the row limit a cliff, not a throttle; undercounting it is the
+   failure mode that matters.
+2. As a consequence the meter never wrote anything at all. On `/api/me` the only
+   metered query was `usageToday()`, which reads an empty `usage_log` and so reports
+   `rows_read: 0` — the tally stayed empty, `flushUsage()` early-returned, and the
+   table stayed empty. Self-sustaining.
+
+The fix: `resolveUser` returns `{ user, cost }` where `cost` is a plain
+`{rows_read, rows_written}` — no D1 type escapes `db.ts` — and the middleware folds it
+into the request's meter with `db.absorb()`. Confirmed accumulating across successive
+requests against remote D1: `0 → 1 → 3 → 5`, with the matching `usage_log` row.
+
+**Known small undercount, deliberate:** `flushUsage()` does not meter its own write, so
+`rows_written` sits at 0 until phase 2 adds real write endpoints (those go through
+`Db.run()` and are counted). Counting the meter's own write means carrying it into the
+next request; not worth the complexity for one row per request. Revisit if the write
+bar ever needs to be exact.
 
 ## What is left
 
-```bash
-npx wrangler d1 create note              # write the id into wrangler.jsonc
-npx wrangler r2 bucket create note-photos
-npm run db:migrate                       # remote
-npm run deploy
-```
+Everything below needs JP — the team name is account onboarding a token cannot
+bootstrap, and the rest follows from it.
 
-Then:
-- Zero Trust team name (needs JP — account onboarding, a token likely can't bootstrap it)
+- **Zero Trust team name** — blocks the Access application
 - Access application on `note.jpsapps.com`, login method **Cloudflare IdP** + one-time
   PIN fallback, policy allowing `jpsappshq@gmail.com`, session duration 1 month
 - Copy the **AUD tag** into `ACCESS_AUD`, team domain into `ACCESS_TEAM_DOMAIN`
 - Uncomment the `routes` block in `wrangler.jsonc`, redeploy
 - Bind `img.jpsapps.com` to the `note-photos` bucket in the R2 dashboard
 
+Until `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` are set, the Worker is deployed but closed:
+every `/api/*` call except `/api/health` is refused. That is the correct state, not a
+half-finished one — the Worker is reachable on workers.dev and must not trust an
+unverified header.
+
 Phase 1 is done when: the Worker deploys, the D1 tables exist and are queryable with
-wrangler, the R2 bucket exists, and JP can log in.
+wrangler, the R2 bucket exists, and JP can log in. **Only the last is outstanding.**
 
 ## Spec issues found — decided, not open
 
