@@ -731,6 +731,13 @@ app.post("/api/activities/:id/end", async (c) => {
   return c.json({ ended: closed, ended_at: at });
 });
 
+/** No window here, unlike a note. An activity is a claim about time, not a record
+ *  of something that happened, so removing a wrong one is only ever a correction. */
+app.delete("/api/activities/:id", async (c) => {
+  const gone = await c.get("db").deleteActivity(c.req.param("id"));
+  return gone ? c.json({ deleted: true }) : c.json({ error: "No such activity" }, 404);
+});
+
 /** Corrections, which §11 asks for by name: "always manually correctable". */
 app.patch("/api/activities/:id", async (c) => {
   const db = c.get("db");

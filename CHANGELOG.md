@@ -3,6 +3,13 @@
 Mirrors the list shown in Settings. One line per release — enough to answer
 "did the thing I asked for actually ship", not full release notes.
 
+## 1.17.0
+Dates and times read **Monday, 9/7/2026 1:10 PM** everywhere they are written out,
+from one formatter rather than five ad-hoc ones. An activity started by mistake can
+be removed; notes captured during it stay in the log and lose only the stamp. Fixed
+the day's activity rows, where a long label was squeezed until it wrapped one word
+per line.
+
 ## 1.16.0
 Activities (phase 5). Time as a stack rather than a clock: something is always
 running, and it nests one level — "At the shop" over "Compressor 2 — contactor". The

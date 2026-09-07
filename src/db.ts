@@ -1224,6 +1224,35 @@ export class Db {
     return res.meta?.changes ?? 0;
   }
 
+  /**
+   * Remove an activity, and its children with it.
+   *
+   * Notes captured during it survive with their stamp cleared — they happened, and
+   * the note is the record; only the claim about what was being worked on goes. An
+   * activity started by mistake is a correction like any other, and without this it
+   * would sit in the day's list forever.
+   */
+  async deleteActivity(id: string): Promise<boolean> {
+    const kids = await this.all<{ id: string }>(
+      this.d1
+        .prepare("SELECT id FROM activities WHERE user_id = ? AND parent_id = ?")
+        .bind(this.userId, id),
+    );
+    const ids = [id, ...kids.map((k) => k.id)];
+    const marks = ids.map(() => "?").join(",");
+
+    const res = await this.d1.batch([
+      this.d1
+        .prepare(`UPDATE entries SET activity_id = NULL WHERE user_id = ? AND activity_id IN (${marks})`)
+        .bind(this.userId, ...ids),
+      this.d1
+        .prepare(`DELETE FROM activities WHERE user_id = ? AND id IN (${marks})`)
+        .bind(this.userId, ...ids),
+    ]);
+    res.forEach((r) => readMeta(this.meter, r.meta));
+    return (res[1]?.meta?.changes ?? 0) > 0;
+  }
+
   /** Corrections after the fact, which §11 calls for explicitly. */
   async updateActivity(
     id: string,

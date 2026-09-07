@@ -116,6 +116,46 @@ await boot();
 check(/1h 5[0-9]m|2h 0[0-9]m/.test(await p.textContent("#actStrip")),
   `a backdated start shows the real elapsed time (${(await p.textContent("#actStrip")).trim()})`);
 
+// ---------- removing one started by mistake ----------
+{
+  const oops = (await start("Started by mistake " + TAG)).body;
+  const kept = await p.evaluate(async (tag) => {
+    const id = crypto.randomUUID();
+    await fetch("/api/entries", { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id, created_at: Date.now(), context: "work",
+        body: "note during the mistake " + tag, activity_id: (await (await fetch("/api/activities/current")).json()).current.id }) });
+    return id;
+  }, TAG);
+  check((await api("/api/entries/" + kept)).body.activity_id === oops.id, "a note was stamped with it");
+
+  await boot();
+  await p.click("#actStrip"); await p.waitForSelector("[data-delact]", { timeout: 4000 });
+  await p.click(`[data-delact="${oops.id}"]`); await p.waitForTimeout(1200);
+  check((await api("/api/activities/current")).body.current === null, "removing it leaves nothing running");
+  const note = await api("/api/entries/" + kept);
+  check(note.status === 200, "the note captured during it survives");
+  check(note.body.activity_id === null, "with only its stamp cleared");
+  await p.evaluate(() => history.back()); await p.waitForTimeout(400);
+}
+
+// ---------- the date format, everywhere it is written out ----------
+{
+  const WANT = /^[A-Z][a-z]+day, \d{1,2}\/\d{1,2}\/\d{4} \d{1,2}:\d{2} (AM|PM)$/;
+  await p.evaluate(async (tag) => {
+    await fetch("/api/entries", { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: crypto.randomUUID(), created_at: Date.now(), context: "work",
+        body: "format check " + tag }) });
+  }, TAG);
+  await boot();
+  await p.click('nav button[data-view="log"]'); await p.waitForTimeout(900);
+  const heading = (await p.textContent("#dayLabel")).trim();
+  check(/^[A-Z][a-z]+day, \d{1,2}\/\d{1,2}\/\d{4}$/.test(heading) || heading === "Today",
+    `the day heading reads as a date (${heading})`);
+  await p.click(`#dayList .entry:has-text("format check ${TAG}")`); await p.waitForTimeout(900);
+  const when = await p.$$eval("#detailBody .meta dd", (n) => n.map((x) => x.textContent.trim()));
+  check(WANT.test(when[0]), `entry detail shows "Monday, 9/7/2026 1:10 PM" form (${when[0]})`);
+}
+
 console.log(fails ? `\n${fails} FAILURES` : "\nall green");
 await browser.close();
 process.exit(fails ? 1 : 0);

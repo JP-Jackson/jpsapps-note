@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#16222E">
-<meta name="app-version" content="1.16.0">
+<meta name="app-version" content="1.17.0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Note">
@@ -361,13 +361,28 @@ addEventListener("appinstalled", function () {
     letter-spacing:.06em;color:var(--ink-2)}
   .actnow h3{margin:3px 0 2px;font-size:19px;font-weight:600}
   .actnow .since{font:400 12px/1.6 var(--font-mono);color:var(--ink-2)}
-  .actrow{display:flex;align-items:center;gap:10px;background:var(--card);
-    border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:7px}
-  .actrow .nm{flex:1;min-width:0;font-size:14px}
-  .actrow .nm small{display:block;color:var(--ink-2);font:400 11px/1.5 var(--font-mono)}
-  .actrow input[type=time]{width:96px;border:1px solid var(--line);border-radius:8px;
-    background:var(--bg);color:var(--ink);padding:7px 8px;font:400 13px var(--font-mono)}
-  .actrow .sub{padding-left:22px;border-left:2px solid var(--line);margin-left:4px}
+  /* Stacked, not a single row. Side by side, a long label like "Compressor 2 —
+     contactor swap" gets squeezed against a time input and a button until it wraps
+     one word per line. The label gets the full width and the controls sit under it. */
+  .actrow{background:var(--card);border:1px solid var(--line);border-radius:10px;
+    padding:11px 13px;margin-bottom:7px}
+  .actrow .nm{font-size:14.5px;font-weight:500;display:block}
+  .actrow .nm small{display:block;margin-top:2px;font-weight:400;color:var(--ink-2);
+    font:400 11px/1.5 var(--font-mono);text-transform:uppercase;letter-spacing:.04em}
+  .actrow .ctl{display:flex;align-items:center;gap:8px;margin-top:9px}
+  .actrow .ctl .sep{color:var(--ink-2);font:400 11px var(--font-mono);flex:none}
+  /* .btn is width:100% for the big thumb-zone buttons, which inside a flex row
+     means it swallows everything next to it. Both controls are sized explicitly
+     here so the time inputs keep a usable width. */
+  .actrow input[type=time]{flex:0 0 auto;width:112px;border:1px solid var(--line);
+    border-radius:8px;background:var(--bg);color:var(--ink);padding:8px 9px;
+    font:400 13px var(--font-mono)}
+  .actrow .ctl .btn{flex:0 0 auto;width:auto;padding:9px 18px;font-size:14px}
+  .actrow .rowx{margin-left:auto;padding:0 2px 0 10px}
+  /* A nested one is indented and hangs off a rule, so the shape of the stack is
+     visible without repeating the parent's name on every child. */
+  .actrow.sub{margin-left:14px;border-left:3px solid var(--blue);
+    border-top-left-radius:4px;border-bottom-left-radius:4px}
   #installBar{display:flex;align-items:stretch;gap:0;margin:0 0 12px;
     background:var(--navy);border-radius:12px;overflow:hidden}
   #installGo{flex:1;min-width:0;display:flex;align-items:center;gap:11px;
@@ -990,9 +1005,20 @@ const $ = (id) => document.getElementById(id);
 const err = (msg) => { $("err").textContent = msg; $("err").classList.toggle("on", !!msg); };
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const fmtTime = (ms) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-const fmtFull = (ms) => new Date(ms).toLocaleString([], {
-  weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+/* ---- dates and times, in one place ----
+   "Monday, 9/7/2026 1:10 PM" everywhere it is written out. Built by hand rather
+   than left to toLocaleString, which puts a comma between the year and the time.
+   Everything that shows a date goes through these three, so the app cannot end up
+   with four slightly different date formats on four screens.
+
+   Not for <input type="time">, which needs 24-hour HH:MM whatever is displayed. */
+const fmtDate = (ms) => {
+  const d = new Date(ms);
+  return d.toLocaleDateString([], { weekday: "long" }) + ", " +
+    (d.getMonth() + 1) + "/" + d.getDate() + "/" + d.getFullYear();
+};
+const fmtTime = (ms) => new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+const fmtFull = (ms) => fmtDate(ms) + " " + fmtTime(ms);
 
 /* ------------------------------------------------------------------ version
    The page carries its own version, stamped at build time by scripts/sync-version.mjs.
@@ -1670,7 +1696,7 @@ async function loadDay() {
   $("dayLabel").textContent =
     dayOffset === 0 ? "Today"
     : dayOffset === -1 ? "Yesterday"
-    : b.start.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+    : fmtDate(b.start.getTime());
   $("dayNext").disabled = dayOffset >= 0;   // there are no captures in the future
   try {
     const r = await fetch("/api/entries?view=day&from=" + b.from + "&to=" + b.to);
@@ -2010,6 +2036,7 @@ document.querySelector("nav").addEventListener("click", (e) => {
    One line per release, newest first. Kept deliberately short: it exists to answer
    "did the thing I asked for actually ship", not to be release notes. */
 const RELEASES = [
+  ["1.17.0", "Dates read Monday, 9/7/2026 1:10 PM everywhere; remove an activity"],
   ["1.16.0", "Activities: what you are working on, nested, stamped onto every note"],
   ["1.15.0", "Usage bars in Settings; pick a cover photo for a thing"],
   ["1.14.0", "Delete a note within 15 minutes of capture; delete things and queued notes"],
@@ -2802,8 +2829,7 @@ function elapsed(sinceMs) {
   return h ? h + "h " + String(m).padStart(2, "0") + "m" : m + "m";
 }
 
-const clockOf = (ms) =>
-  new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+const clockOf = fmtTime;
 
 async function loadActivity() {
   try {
@@ -2866,8 +2892,11 @@ function actRow(a, isChild) {
     '<span class="nm">' + esc(a.label) +
       "<small>" + (a.ended_at ? mins(a.ended_at - a.started_at) : "running · " + elapsed(a.started_at)) +
       "</small></span>" +
-    '<input type="time" data-start="' + esc(a.id) + '" value="' + hhmm(a.started_at) + '">' +
-    end + "</div>";
+    '<div class="ctl">' +
+      '<input type="time" data-start="' + esc(a.id) + '" value="' + hhmm(a.started_at) + '">' +
+      '<span class="sep">to</span>' + end +
+      '<button class="rowx" data-delact="' + esc(a.id) + '" title="Remove">&times;</button>' +
+    "</div></div>";
 }
 
 const hhmm = (ms) => {
@@ -2960,9 +2989,17 @@ $("actBody").addEventListener("change", async (e) => {
   openActivity();
 });
 
-$("actBody").addEventListener("click", (e) => {
+$("actBody").addEventListener("click", async (e) => {
   const b = e.target.closest("[data-endnow]");
-  if (b) endActivity(b.dataset.endnow);
+  if (b) { endActivity(b.dataset.endnow); return; }
+
+  // Started by mistake. Notes captured during it keep their text and lose only the
+  // stamp — they happened, whatever it was called at the time.
+  const x = e.target.closest("[data-delact]");
+  if (!x) return;
+  if (!confirm("Remove this from the day? Notes captured during it stay in your log.")) return;
+  await fetch("/api/activities/" + encodeURIComponent(x.dataset.delact), { method: "DELETE" });
+  openActivity();
 });
 
 $("actBack").addEventListener("click", () => closeOverlay("activity"));
@@ -3030,9 +3067,8 @@ function maybeAskDayEnd() {
   });
   opts.push({ label: "Still running", go: true, run: async () => {} });
   askPrompt(
-    esc(cur.label) + " has been running since " +
-    esc(started.toLocaleDateString([], { weekday: "short" })) + " " +
-    esc(clockOf(cur.started_at)) + ". When did you finish?",
+    esc(cur.label) + " has been running since " + esc(fmtFull(cur.started_at)) +
+      ". When did you finish?",
     opts,
   );
 }
@@ -3298,7 +3334,7 @@ async function renderConnections() {
     '<div class="conn"><div class="who">' +
       '<div class="cname">' + esc(c.client_name || "Unnamed client") + "</div>" +
       '<div class="cwhen">connected ' +
-        esc(new Date(c.created_at).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })) +
+        esc(fmtDate(c.created_at)) +
       "</div>" +
     '</div><button data-revoke="' + esc(c.token_hash) + '">Disconnect</button></div>',
   ).join("");
