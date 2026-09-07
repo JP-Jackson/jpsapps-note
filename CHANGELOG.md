@@ -3,6 +3,12 @@
 Mirrors the list shown in Settings. One line per release — enough to answer
 "did the thing I asked for actually ship", not full release notes.
 
+## 1.15.0
+Usage bars in Settings: AI neurons, database reads, database writes and storage,
+each against its free allocation, from the self-metered tally rather than
+Cloudflare's analytics. A thing can have a cover photo — tap **Make cover** on any
+of its photos and it leads the page and the list; tap it again to clear it.
+
 ## 1.14.0
 A note can be deleted for 15 minutes after it was captured, and the detail screen
 says how long is left. After that it is permanent. A note still in the offline queue

@@ -95,6 +95,8 @@ export interface NewAttachment {
 }
 
 export interface SubjectRow {
+  /** Only on list queries: the hero photo's object key, for building its URL. */
+  hero_key?: string | null;
   id: string;
   name: string;
   type: string;
@@ -425,6 +427,23 @@ export class Db {
   }
 
   /** Today's self-metered usage, for the quota bars (§8b). */
+  /**
+   * Bytes held in R2, from the attachment rows rather than by listing the buckets.
+   *
+   * Listing to add up sizes is a Class A operation per page and grows with the
+   * number of objects — paying, in requests, to measure a number we already wrote
+   * down. The rows are the record; a divergence would mean a delete half-failed,
+   * which is a bug to fix rather than a number to paper over.
+   */
+  async storageUsed(): Promise<number> {
+    const row = await this.first<{ total: number | null }>(
+      this.d1
+        .prepare("SELECT SUM(bytes) AS total FROM attachments WHERE user_id = ?")
+        .bind(this.userId),
+    );
+    return row?.total ?? 0;
+  }
+
   async usageToday(): Promise<UsageTotals> {
     const rows = await this.all<{ metric: string; amount: number }>(
       this.d1
@@ -896,11 +915,13 @@ export class Db {
     return this.all<SubjectRow>(
       this.d1
         .prepare(
-          `SELECT id, name, type, context, visibility, hero_photo_id, created_at, archived_at
-             FROM subjects
-            WHERE user_id = ?` +
-            (includeArchived ? "" : " AND archived_at IS NULL") +
-            ` ORDER BY name COLLATE NOCASE`,
+          `SELECT s.id, s.name, s.type, s.context, s.visibility, s.hero_photo_id,
+                  s.created_at, s.archived_at, a.r2_key AS hero_key
+             FROM subjects s
+             LEFT JOIN attachments a ON a.id = s.hero_photo_id AND a.user_id = s.user_id
+            WHERE s.user_id = ?` +
+            (includeArchived ? "" : " AND s.archived_at IS NULL") +
+            ` ORDER BY s.name COLLATE NOCASE`,
         )
         .bind(this.userId),
     );

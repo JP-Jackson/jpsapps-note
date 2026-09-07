@@ -133,14 +133,32 @@ app.onError((err, c) => {
   return c.json({ error: "Something went wrong" }, 500);
 });
 
+/**
+ * The free-tier ceilings the usage bars are drawn against (§8).
+ *
+ * Kept here beside the endpoint rather than in the client, because the client is
+ * cached and these are Cloudflare's numbers, not ours — if a plan changes, a deploy
+ * should be enough to correct what the bars say.
+ */
+const LIMITS = {
+  neurons: 10_000,          // Workers AI, per day
+  rows_read: 5_000_000,     // D1, per day
+  rows_written: 100_000,    // D1, per day
+  storage_bytes: 10 * 1024 * 1024 * 1024,   // R2, total rather than per day
+};
+
 app.get("/api/me", async (c) => {
   const session = c.get("session");
+  const db = c.get("db");
+  const [usage, storage] = await Promise.all([db.usageToday(), db.storageUsed()]);
   return c.json({
     id: session.userId,
     email: session.email,
     displayName: session.user.display_name,
     createdAt: session.user.created_at,
-    usageToday: await c.get("db").usageToday(),
+    usageToday: usage,
+    storageBytes: storage,
+    limits: LIMITS,
   });
 });
 
@@ -384,7 +402,13 @@ app.get("/api/templates", async (c) => {
 
 app.get("/api/subjects", async (c) => {
   const includeArchived = c.req.query("archived") === "1";
-  return c.json({ subjects: await c.get("db").listSubjects(includeArchived) });
+  const rows = await c.get("db").listSubjects(includeArchived);
+  return c.json({
+    subjects: rows.map(({ hero_key, ...s }) => ({
+      ...s,
+      hero_url: hero_key ? `${c.env.IMG_BASE}/${hero_key}` : null,
+    })),
+  });
 });
 
 app.post("/api/subjects", async (c) => {
@@ -480,8 +504,14 @@ app.patch("/api/subjects/:id", async (c) => {
   if (Array.isArray(body.attributes)) await db.setAttributes(id, body.attributes as never);
 
   const patch: Record<string, unknown> = {};
-  for (const k of ["name", "context", "visibility", "hero_photo_id"]) {
+  for (const k of ["name", "context", "visibility"]) {
     if (typeof body[k] === "string") patch[k] = body[k];
+  }
+  // hero_photo_id is the one field whose null is meaningful: it is how a cover is
+  // cleared. A string-only check would drop that silently, leaving a button that
+  // looks like a toggle and only works one way.
+  if (body.hero_photo_id === null || typeof body.hero_photo_id === "string") {
+    patch.hero_photo_id = body.hero_photo_id;
   }
   if (Object.keys(patch).length) await db.updateSubject(id, patch);
 
