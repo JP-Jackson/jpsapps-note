@@ -1,7 +1,7 @@
 # Note — build specification
 
 **note.jpsapps.com** · a capture-first day log for work and home
-Owner: JP · Last updated: 6 September 2026
+Owner: JP · Last updated: 7 September 2026 (contexts are work and personal; see HANDOFF.md for 1.23–1.24 decisions)
 
 ---
 
@@ -74,7 +74,7 @@ CREATE TABLE entries (
   user_id       TEXT NOT NULL REFERENCES users(id),
   created_at    INTEGER NOT NULL,      -- when it happened (device clock)
   synced_at     INTEGER,               -- when the server received it
-  context       TEXT NOT NULL,         -- 'work' | 'home' | 'vehicles' | ...
+  context       TEXT NOT NULL,         -- 'work' | 'personal'  (two worlds; never mixed — see HANDOFF 1.24.0)
   body          TEXT,                  -- the cleaned-up note
   body_raw      TEXT,                  -- original dictation, never overwritten
   lat           REAL,

@@ -303,13 +303,20 @@ export interface ConnectionRow {
  * "vehicles" is rejected rather than mapped. Half of them are Work and half are Home,
  * so a guess here would be wrong about half the time and silent every time.
  */
-const CONTEXTS = ["work", "home"] as const;
-const CONTEXT_ALIASES: Record<string, string> = {};
+const CONTEXTS = ["work", "personal"] as const;
+// "home" was the name until 1.24.0; older clients and Claude may still say it.
+const CONTEXT_ALIASES: Record<string, string> = { home: "personal" };
 
 export class BadContext extends Error {
   constructor(readonly given: string) {
-    super(`"${given}" is not a context. Use work or home.`);
+    super(`"${given}" is not a context. Use work or personal.`);
   }
+}
+
+/** A world name, normalised, or null for anything that is not one. */
+export function worldOf(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  try { return normaliseContext(raw); } catch { return null; }
 }
 
 function normaliseContext(raw: string): string {
@@ -335,10 +342,21 @@ export class Db {
   private readonly d1: D1Database;
   readonly userId: string;
   private readonly meter: Meter = { rows_read: 0, rows_written: 0, neurons: 0 };
+  /** Which world every list is drawn from. Work and personal never intertwine
+   *  (decided 7 Sep 2026), so the filter lives here rather than in each screen:
+   *  a list that forgets to pass it is scoped anyway. Null means both, which only
+   *  the by-id reads and the world switch's own lookups should want. */
+  world: string | null = null;
 
-  constructor(d1: D1Database, userId: string) {
+  constructor(d1: D1Database, userId: string, world: string | null = null) {
     this.d1 = d1;
     this.userId = userId;
+    this.world = world;
+  }
+
+  /** SQL and bindings for the world filter, or nothing when unscoped. */
+  private scope(col = "context"): { sql: string; args: string[] } {
+    return this.world ? { sql: ` AND ${col} = ?`, args: [this.world] } : { sql: "", args: [] };
   }
 
   // ---------------------------------------------------------------- internals
@@ -575,7 +593,9 @@ export class Db {
         this.userId,
         e.created_at,
         Date.now(),
-        e.context,
+        // Normalised here, not trusted: a note stored as "home" would sit in
+        // neither world and be invisible from both.
+        normaliseContext(e.context),
         e.body,
         e.body,
         e.lat,
@@ -591,16 +611,17 @@ export class Db {
 
   /** Today's captures, newest first. Rides the (user_id, created_at DESC) index. */
   async recentEntries(limit = 20): Promise<EntryRow[]> {
+    const sc = this.scope();
     return this.all<EntryRow>(
       this.d1
         .prepare(
           `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open, activity_id, place_id
              FROM entries
-            WHERE user_id = ? AND deleted_at IS NULL
+            WHERE user_id = ? AND deleted_at IS NULL${sc.sql}
             ORDER BY created_at DESC
             LIMIT ?`,
         )
-        .bind(this.userId, limit),
+        .bind(this.userId, ...sc.args, limit),
     );
   }
 
@@ -610,16 +631,17 @@ export class Db {
    * guessing their timezone.
    */
   async entriesForDay(fromMs: number, toMs: number): Promise<EntryRow[]> {
+    const sc = this.scope();
     return this.all<EntryRow>(
       this.d1
         .prepare(
           `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open, activity_id, place_id
              FROM entries
-            WHERE user_id = ? AND deleted_at IS NULL
+            WHERE user_id = ? AND deleted_at IS NULL${sc.sql}
               AND created_at >= ? AND created_at < ?
             ORDER BY created_at DESC`,
         )
-        .bind(this.userId, fromMs, toMs),
+        .bind(this.userId, ...sc.args, fromMs, toMs),
     );
   }
 
@@ -631,16 +653,17 @@ export class Db {
    * bottom. Rides idx_entries_open(user_id, is_open, created_at).
    */
   async openEntries(limit = 100): Promise<EntryRow[]> {
+    const sc = this.scope();
     return this.all<EntryRow>(
       this.d1
         .prepare(
           `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open, activity_id, place_id
              FROM entries
-            WHERE user_id = ? AND is_open = 1 AND deleted_at IS NULL
+            WHERE user_id = ? AND is_open = 1 AND deleted_at IS NULL${sc.sql}
             ORDER BY created_at ASC
             LIMIT ?`,
         )
-        .bind(this.userId, limit),
+        .bind(this.userId, ...sc.args, limit),
     );
   }
 
@@ -652,18 +675,19 @@ export class Db {
    * `body_raw` is searched too, so a word that an edit removed is still findable.
    */
   async searchEntries(q: string, limit = 50): Promise<EntryRow[]> {
+    const sc = this.scope();
     const like = `%${q.replace(/[%_\\]/g, (c) => "\\" + c)}%`;
     return this.all<EntryRow>(
       this.d1
         .prepare(
           `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open, activity_id, place_id
              FROM entries
-            WHERE user_id = ? AND deleted_at IS NULL
+            WHERE user_id = ? AND deleted_at IS NULL${sc.sql}
               AND (body LIKE ?2 ESCAPE '\\' OR body_raw LIKE ?2 ESCAPE '\\')
             ORDER BY created_at DESC
             LIMIT ?3`,
         )
-        .bind(this.userId, like, limit),
+        .bind(this.userId, ...sc.args, like, limit),
     );
   }
 
@@ -952,35 +976,52 @@ export class Db {
   // convenience laid over them — matched by proximity, suggested, never forced.
 
   async listPlaces(): Promise<PlaceRow[]> {
+    const sc = this.scope("p.context");
     return this.all<PlaceRow>(
       this.d1
         .prepare(
-          `SELECT p.id, p.name, p.lat, p.lng, p.radius_m,
-                  (SELECT e.context FROM entries e
-                    WHERE e.place_id = p.id AND e.user_id = p.user_id
-                    GROUP BY e.context ORDER BY COUNT(*) DESC LIMIT 1) AS context,
+          `SELECT p.id, p.name, p.lat, p.lng, p.radius_m, p.context,
                   (SELECT COUNT(*) FROM subjects s
                     WHERE s.place_id = p.id AND s.user_id = p.user_id
                       AND s.archived_at IS NULL) AS things
              FROM places p
-            WHERE p.user_id = ?
+            WHERE p.user_id = ?${sc.sql}
             ORDER BY p.name COLLATE NOCASE`,
         )
-        .bind(this.userId),
+        .bind(this.userId, ...sc.args),
     );
   }
 
-  async createPlace(name: string, lat: number, lng: number, radiusM = 150): Promise<string> {
+  async createPlace(name: string, lat: number, lng: number, radiusM = 150, context = "work"): Promise<string> {
     const id = newId();
     await this.run(
       this.d1
         .prepare(
-          `INSERT INTO places (id, user_id, name, lat, lng, radius_m, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO places (id, user_id, name, lat, lng, radius_m, created_at, context)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         )
-        .bind(id, this.userId, name, lat, lng, radiusM, Date.now()),
+        .bind(id, this.userId, name, lat, lng, radiusM, Date.now(), normaliseContext(context)),
     );
     return id;
+  }
+
+  /**
+   * Move a note to the other world. Its links go with the move — an item or a
+   * person belongs to one world, so every link it had was to something on the
+   * side it is leaving — and so does the place, for the same reason.
+   */
+  async moveEntry(id: string, context: string): Promise<boolean> {
+    const world = normaliseContext(context);
+    const res = await this.d1.batch([
+      this.d1.prepare("DELETE FROM entry_subjects WHERE entry_id = ? AND user_id = ?").bind(id, this.userId),
+      this.d1.prepare("DELETE FROM entry_people WHERE entry_id = ? AND user_id = ?").bind(id, this.userId),
+      this.d1
+        .prepare(`UPDATE entries SET context = ?, place_id = NULL, edited_at = ?
+                   WHERE id = ? AND user_id = ? AND context <> ?`)
+        .bind(world, Date.now(), id, this.userId, world),
+    ]);
+    res.forEach((r) => readMeta(this.meter, r.meta));
+    return (res[res.length - 1]?.meta?.changes ?? 0) > 0;
   }
 
   /**
@@ -1098,6 +1139,7 @@ export class Db {
   }
 
   async listSubjects(includeArchived = false): Promise<SubjectRow[]> {
+    const sc = this.scope("s.context");
     return this.all<SubjectRow>(
       this.d1
         .prepare(
@@ -1106,11 +1148,11 @@ export class Db {
                   a.r2_key AS hero_key
              FROM subjects s
              LEFT JOIN attachments a ON a.id = s.hero_photo_id AND a.user_id = s.user_id
-            WHERE s.user_id = ?` +
+            WHERE s.user_id = ?${sc.sql}` +
             (includeArchived ? "" : " AND s.archived_at IS NULL") +
             ` ORDER BY s.name COLLATE NOCASE`,
         )
-        .bind(this.userId),
+        .bind(this.userId, ...sc.args),
     );
   }
 
@@ -1430,14 +1472,15 @@ export class Db {
   }
 
   async listPeople(includeArchived = false): Promise<PersonRow[]> {
+    const sc = this.scope();
     const rows = await this.all<Omit<PersonRow, "place_ids">>(
       this.d1
         .prepare(
-          `SELECT ${this.PERSON_COLS} FROM people WHERE user_id = ?` +
+          `SELECT ${this.PERSON_COLS} FROM people WHERE user_id = ?${sc.sql}` +
             (includeArchived ? "" : " AND archived_at IS NULL") +
             " ORDER BY name COLLATE NOCASE",
         )
-        .bind(this.userId),
+        .bind(this.userId, ...sc.args),
     );
     const at = await this.placesOfPeople(rows.map((r) => r.id));
     return rows.map((r) => ({ ...r, place_ids: at.get(r.id) || [] }));
@@ -1445,18 +1488,18 @@ export class Db {
 
   /** Exact name first, then a unique partial. Used by spoken "new person" so a
    *  second mention links the existing record instead of minting a twin. */
-  async personByName(name: string): Promise<PersonRow | null> {
+  async personByName(name: string, context?: string): Promise<PersonRow | null> {
     const lower = name.trim().toLowerCase();
     if (!lower) return null;
     const all = await this.listPeople();
-    return all.find((p) => p.name.toLowerCase() === lower) ?? null;
+    return all.find((p) => p.name.toLowerCase() === lower && (!context || p.context === context)) ?? null;
   }
 
-  async subjectByName(name: string): Promise<SubjectRow | null> {
+  async subjectByName(name: string, context?: string): Promise<SubjectRow | null> {
     const lower = name.trim().toLowerCase();
     if (!lower) return null;
     const all = await this.listSubjects();
-    return all.find((s) => s.name.toLowerCase() === lower) ?? null;
+    return all.find((s) => s.name.toLowerCase() === lower && (!context || s.context === context)) ?? null;
   }
 
   async createPerson(p: PersonPatch & { name: string; context: string }): Promise<string> {
@@ -1595,14 +1638,15 @@ export class Db {
    * would cost more in query planning than the rows it saves.
    */
   async openStack(): Promise<ActivityRow[]> {
+    const sc = this.scope();
     const open = await this.all<ActivityRow>(
       this.d1
         .prepare(
           `SELECT id, parent_id, label, subject_id, context, started_at, ended_at
-             FROM activities WHERE user_id = ? AND ended_at IS NULL
+             FROM activities WHERE user_id = ? AND ended_at IS NULL${sc.sql}
             ORDER BY started_at DESC`,
         )
-        .bind(this.userId),
+        .bind(this.userId, ...sc.args),
     );
     if (!open.length) return [];
 
@@ -1745,15 +1789,16 @@ export class Db {
 
   /** Everything that overlaps a window, so a span crossing midnight still appears. */
   async activitiesBetween(fromMs: number, toMs: number): Promise<ActivityRow[]> {
+    const sc = this.scope();
     return this.all<ActivityRow>(
       this.d1
         .prepare(
           `SELECT id, parent_id, label, subject_id, context, started_at, ended_at
              FROM activities
-            WHERE user_id = ? AND started_at < ? AND (ended_at IS NULL OR ended_at > ?)
+            WHERE user_id = ? AND started_at < ? AND (ended_at IS NULL OR ended_at > ?)${sc.sql}
             ORDER BY started_at ASC`,
         )
-        .bind(this.userId, toMs, fromMs),
+        .bind(this.userId, ...sc.args, toMs, fromMs),
     );
   }
 

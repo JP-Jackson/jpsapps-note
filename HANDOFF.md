@@ -1,6 +1,6 @@
 # Note — handoff
 
-Written 7 Sep 2026, updated at **v1.23.0**. `NOTE_SPEC.md` is the authority: where it states a
+Written 7 Sep 2026, updated at **v1.24.0**. `NOTE_SPEC.md` is the authority: where it states a
 decision and a reason, follow it rather than substituting a different approach. This
 file records where the spec was overruled and why.
 
@@ -23,7 +23,7 @@ Phases 1–6 of §11 are built and deployed. Every push to `main` deploys automa
 | MCP connector | `https://note.jpsapps.com/mcp` — connected, 7 tools (add_note understands "new item X") |
 | Account | jpsappshq@gmail.com — `bf9f771dae485c448a5740c54ca5771d` |
 
-Migrations applied: `0001_init`, `0002_subjects`, `0003_oauth`, `0004_hierarchy`, `0005_people`.
+Migrations applied: `0001_init`, `0002_subjects`, `0003_oauth`, `0004_hierarchy`, `0005_people`, `0006_personal`.
 Secrets: `OAUTH_SECRET`.
 
 **Live data, as of v1.23.0: fake.** The seed set from `scripts/seed-dev.mjs` (five west-Texas places, ten items, three people, twenty notes) was written to production on 7 Sep so JP could drive the app with data in it. Delete it when he says so. Before that, as of v1.22.0, three things existed and nested: `Yard` → `Front sprinkler`,
@@ -183,6 +183,48 @@ does, because naming a spot should explain the captures already made there. Movi
 the pin afterwards is a correction to a place that already has a history, and
 sweeping in whatever happens to sit near the new coordinates would rewrite that
 history as a side effect of a typo fix.
+
+## Section 1¾, as shipped in 1.24.0 — two worlds
+
+JP, 7 Sep: *"we really need to separate home and work. None should intertwine."*
+Asked seven questions; the answers that shaped it:
+
+- Work days are work with the odd personal note; weekends are personal. So the
+  switch is **sticky, never guessed**: a wrong guess on Monday morning costs more
+  than one tap on Saturday.
+- The other side must be **invisible**, not filtered. So the scope is **server-side**:
+  `?world=work|personal` on every list request sets `Db.world` in the middleware and
+  every list query carries `AND context = ?`. A screen that forgets the parameter
+  gets both worlds, which is why the tests ask the API with and without it.
+- The not-work side is **Personal**, not Home — home is one of its places, beside the
+  rental and the in-laws'. Migration `0006_personal` renames the stored value;
+  `CONTEXT_ALIASES` still accepts `home` because Claude and old clients will say it.
+- **Places belong to a world** now (`places.context`, default work) instead of
+  inferring one from the notes made there. A place created from the app takes the
+  screen's world.
+- **The switch is in the header** — the only place the two sides meet — and the
+  **keyline and accent are maroon for work, blue for personal** (JP's colours). Every
+  accent was already a token, so this is one `data-world` attribute on `<html>`.
+- The per-form context choosers (add item, edit item, edit person, import) are
+  **hidden, not removed**: they exist in the DOM preset to the world, so the old
+  handlers and tests still work and nothing has two sources of truth.
+- **A wrong-side capture happens** (his words: "could happen"). `POST
+  /api/entries/:id/move` flips the note's world and drops its links and place,
+  because an item, a person or a place belongs to one side and every link it had
+  was to the side it is leaving. One button on the entry page.
+- **One nudge.** `loadPlaces` fetches the other world's places as well, for the
+  sole purpose of the chip saying "At Rental — switch to personal?" when the phone
+  is inside a place this world does not know. Tapping switches. There is no other
+  cross-world read in the app.
+- **Claude asks.** Every connector tool takes `context` and the tool descriptions
+  say to ask when the user has not made it clear; a call without one returns a
+  problem rather than merging or guessing. One connector, as JP wanted.
+- His wife's access is the personal world shared, later; context was already the
+  sharing boundary (§7) so nothing here has to be undone for it.
+
+`tests/worlds.mjs` covers the scoping, the switch, the colours, the nudge, the
+move and the connector's refusal. `hierarchy.mjs` and `treedrag.mjs` had to be told
+which world their fixtures live in, which is the point.
 
 ## Section 1½, as shipped in 1.23.0 — people, items, spoken adds
 
@@ -407,9 +449,9 @@ ate it.
   here does surface every level, because "which yard is this sprinkler in" is the
   question a flat list of forty things cannot answer.
 - §4 lists `'work' | 'home' | 'vehicles'` as contexts, but §7 makes context the
-  *sharing* boundary — and vehicles is not one. Contexts are **work and home**; a work
-  truck is Work and a personal car is Home. Filtering to vehicles is answered by
-  `type = 'vehicle'` on the thing.
+  *sharing* boundary — and vehicles is not one. Contexts are **work and personal**
+  (personal was home until 1.24.0); a work truck is Work and a personal car is
+  Personal. Filtering to vehicles is answered by `type = 'vehicle'` on the thing.
 - §7 wants passkeys "on top of" Access. Access has no WebAuthn login method; the route
   to biometric is the Cloudflare IdP with a passkey on the Cloudflare account.
 - §8a assumed Cloudflare's MCP Portals. That fronts an MCP server *with* Access, which

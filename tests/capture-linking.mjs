@@ -21,7 +21,7 @@ await p.waitForTimeout(800);
 
 // ---------------------------------------------------------------- contexts
 const chips = await p.$$eval("#chips .chip", (n) => n.map((x) => x.textContent.trim()));
-check(JSON.stringify(chips) === '["Work","Home"]', `capture chips are Work/Home only (got ${JSON.stringify(chips)})`);
+check(JSON.stringify(chips) === '["Work","Personal"]', `the world switch is Work/Personal only (got ${JSON.stringify(chips)})`);
 
 // ------------------------------------------------------- create two things
 for (const [name, type, ctxv] of [["White truck","vehicle","work"],["Shop Compressor","equipment","work"]]) {

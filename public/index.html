@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#16222E">
-<meta name="app-version" content="1.23.0">
+<meta name="app-version" content="1.24.0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Note">
@@ -91,6 +91,19 @@ addEventListener("appinstalled", function () {
     --blue:#5AA9EE; --blue-deep:#2C7BC4;
     --ok:#5ad699; --warn:#F0B44C; --bad:#FF8478;
   }
+  /* Two worlds, two keylines. Work is maroon, personal is the house blue, so which
+     side you are on never needs reading. Every accent is a token, so this is the
+     whole of it: one rule per theme state, layered under the contrast rules below. */
+  :root[data-world="work"]{--blue:#8A2433; --blue-deep:#5E1622}
+  @media (prefers-color-scheme:dark){
+    :root[data-world="work"]:not([data-theme="light"]){--blue:#D9566A; --blue-deep:#8A2433}
+  }
+  :root[data-world="work"][data-theme="dark"]{--blue:#D9566A; --blue-deep:#8A2433}
+  :root[data-world="work"][data-contrast="high"]{--blue:#6E0F1F; --blue-deep:#3E0810}
+  @media (prefers-color-scheme:dark){
+    :root[data-world="work"][data-contrast="high"]:not([data-theme="light"]){--blue:#FF8A96; --blue-deep:#8A2433}
+  }
+  :root[data-world="work"][data-theme="dark"][data-contrast="high"]{--blue:#FF8A96; --blue-deep:#8A2433}
   /* High contrast is a separate axis from light/dark, so it layers on top of
      whichever theme is active. §10 deliberately keeps dark surfaces at 12-15%
      lightness to avoid glare — that is the right default, but when someone asks for
@@ -147,10 +160,18 @@ addEventListener("appinstalled", function () {
     padding-top:calc(10px + env(safe-area-inset-top));
     display:flex;align-items:center;gap:11px;position:sticky;top:0;z-index:20}
   header .mark{flex:none;display:block;width:38px;height:38px}
+  header .mark .keyline{stroke:var(--blue)}
+  /* The world switch: two words in the chrome, the lit one is where you are. */
+  header #chips{margin:0 0 0 2px;gap:0;flex:none;border:1px solid rgba(255,255,255,.28);
+    border-radius:8px;overflow:hidden;align-self:center}
+  header #chips .chip{flex:none;min-width:0;padding:7px 9px;border:0;border-radius:0;
+    background:transparent;color:rgba(255,255,255,.55);font:600 11px/1 var(--font-mono);
+    letter-spacing:.06em;text-transform:uppercase}
+  header #chips .chip[aria-pressed="true"]{background:var(--blue);color:#fff}
   /* align-items:center centres the text BOX; all-caps ink sits in its upper part
      because the descender space below the baseline is empty, so the word reads high.
      The nudge is measured against the shipped font, not guessed — see --name-lift. */
-  header .name{font-family:var(--font-brand);font-weight:700;font-size:46px;line-height:1;
+  header .name{font-family:var(--font-brand);font-weight:700;font-size:40px;line-height:1;
     display:flex;align-items:baseline;gap:9px;white-space:nowrap;
     transform:translateY(var(--name-lift,0px))}
   /* The build, next to the name — the first thing to check when something looks wrong. */
@@ -811,7 +832,7 @@ addEventListener("appinstalled", function () {
 <header>
   <svg class="mark" viewBox="0 0 120 120" role="img" aria-label="Note">
     <rect width="120" height="120" rx="26" fill="#16222E"/>
-    <rect x="7" y="7" width="106" height="106" rx="20" fill="none" stroke="#2C7BC4" stroke-width="6"/>
+    <rect class="keyline" x="7" y="7" width="106" height="106" rx="20" fill="none" stroke="#2C7BC4" stroke-width="6"/>
     <g transform="translate(60,60) scale(0.9) translate(-57,-62)" fill="none" stroke="#fff"
        stroke-linecap="butt" stroke-linejoin="miter">
       <path d="M18 24 H70 C91 24 95 32 95 44 C95 56 91 63 70 63 H56" stroke-width="12"/>
@@ -819,6 +840,11 @@ addEventListener("appinstalled", function () {
     </g>
   </svg>
   <span class="name">Note</span><span id="ver">—</span>
+  <!-- Work and personal never intertwine. This is the only place they meet. -->
+  <div class="chips" id="chips" role="group" aria-label="World">
+    <button class="chip" data-ctx="work" aria-pressed="true">Work</button>
+    <button class="chip" data-ctx="personal" aria-pressed="false">Personal</button>
+  </div>
   <span class="meta-r">
     <button id="status" title="Tap to sync"><span id="dot"></span><span id="statusText">SYNCED</span></button>
     <span class="host">jpsapps.com</span>
@@ -907,7 +933,7 @@ addEventListener("appinstalled", function () {
          have to remember or retype it. -->
     <button class="btn ghost sm" id="copyPrompt" style="margin-bottom:10px">
       Copy the prompt for Claude</button>
-    <textarea id="importBox" placeholder="Compressor 2 | equipment | work&#10;F-150 | vehicle | work&#10;Mower | equipment | home"></textarea>
+    <textarea id="importBox" placeholder="Compressor 2 | equipment | work&#10;F-150 | vehicle | work&#10;Mower | equipment | personal"></textarea>
     <button class="btn ghost sm" id="importBtn">Import list</button>
     <div id="importResult" class="empty"></div>
 
@@ -943,9 +969,9 @@ addEventListener("appinstalled", function () {
       becomes one entry; any date found is used as its time.</p>
     <textarea id="notesRaw" placeholder="&lt;h3&gt;6 Sep 2026&lt;/h3&gt;&lt;p&gt;Fixed the record view…&lt;/p&gt;"
       style="min-height:150px"></textarea>
-    <div class="chips" id="notesCtx">
+    <div class="chips" id="notesCtx" hidden>
       <button class="chip" data-ictx="work"     aria-pressed="true">Work</button>
-      <button class="chip" data-ictx="home"     aria-pressed="false">Home</button>
+      <button class="chip" data-ictx="personal" aria-pressed="false">Personal</button>
     </div>
     <label class="row" style="gap:8px">Attach to
       <select id="notesSubject" style="flex:1;border:1px solid var(--line);border-radius:8px;
@@ -978,15 +1004,15 @@ addEventListener("appinstalled", function () {
     </div>
     <p class="empty" id="typeHint" style="padding-top:0"></p>
 
-    <h2>Where does it belong?</h2>
-    <div class="chips" id="newCtx">
+    <div class="chips" id="newCtx" hidden>
       <button class="chip" data-nctx="work"     aria-pressed="true">Work</button>
-      <button class="chip" data-nctx="home"     aria-pressed="false">Home</button>
+      <button class="chip" data-nctx="personal" aria-pressed="false">Personal</button>
     </div>
 
     <h2>Where does it live?</h2>
     <p class="empty" style="padding-top:0">Optional. A place, or another item —
       the front sprinkler lives in the yard, and the yard is at home.</p>
+    <p class="empty" id="newWorld" style="padding-top:0"></p>
     <select id="newHome" style="width:100%;border:1px solid var(--line);border-radius:8px;
       background:var(--card);color:var(--ink);padding:11px;font:400 15px var(--font-ui);
       margin-bottom:14px"></select>
@@ -1143,10 +1169,6 @@ addEventListener("appinstalled", function () {
      this is a right-handed phone. -->
 <div id="thumb" hidden>
   <button id="placeChip" class="place" hidden></button>
-  <div class="chips" id="chips">
-    <button class="chip" data-ctx="work" aria-pressed="true">Work</button>
-    <button class="chip" data-ctx="home" aria-pressed="false">Home</button>
-  </div>
   <!-- Set when a capture was started from a thing's page: the link is already
        decided, so it is shown as state rather than asked for again. -->
   <button id="againstChip" class="place" hidden></button>
@@ -1393,21 +1415,44 @@ $("retake").addEventListener("click", () => { clearPhoto(); openCamera(); });
 
 /* ------------------------------------------------------------------ context chips */
 let context = localStorage.getItem(CTX_KEY) || "work";
+if (context === "home") context = "personal";   // the name until 1.24.0
+if (context !== "work" && context !== "personal") context = "work";
+document.documentElement.dataset.world = context;
+/** Query-string fragment that scopes a list to the current world. */
+const W = () => "world=" + encodeURIComponent(context);
+const otherWorld = () => (context === "work" ? "personal" : "work");
 function paintChips() {
-  document.querySelectorAll(".chip").forEach((c) => {
+  $("chips").querySelectorAll(".chip").forEach((c) => {
     c.setAttribute("aria-pressed", String(c.dataset.ctx === context));
   });
 }
-$("chips").addEventListener("click", (e) => {
-  const chip = e.target.closest(".chip");
-  if (!chip) return;
-  context = chip.dataset.ctx;
-  localStorage.setItem(CTX_KEY, context);   // remembered, so the common case is 0 taps
+/**
+ * Flip worlds. Everything on screen belongs to one side, so everything reloads:
+ * the lists, the badge, the places, what is running, and the place suggestion.
+ */
+function setWorld(next) {
+  if (next !== "work" && next !== "personal") return;
+  const changed = next !== context;
+  context = next;
+  try { localStorage.setItem(CTX_KEY, context); } catch {}
+  document.documentElement.dataset.world = context;
   paintChips();
+  if (!changed) return;
   // A thing belongs to one context, so a capture aimed at one stops making sense
   // the moment you switch away from it.
   if (linkTo && linkTo.context !== context) { linkTo = null; paintAgainst(); }
   closeLinkBar();
+  herePlace = null; placeAccepted = false;
+  loadPlaces().then(suggestPlace);
+  loadSubjects();
+  loadRecent();
+  loadOpenCount();
+  loadActivity();
+  refreshCurrentView();
+}
+$("chips").addEventListener("click", (e) => {
+  const chip = e.target.closest(".chip");
+  if (chip) setWorld(chip.dataset.ctx);
 });
 paintChips();
 
@@ -1425,7 +1470,7 @@ $("flagBtn").addEventListener("click", () => {
    proximity and offered; you accept it or ignore it. Nothing is ever forced, and the
    app is never blocked waiting for a fix. Places are cached so matching still works
    with no signal — the whole point is that this survives a dead zone. */
-let places = [];
+let places = [], otherPlaces = [], elsewhere = null;
 let herePlace = null, hereCoords = null, placeAccepted = false;
 
 function metresBetween(aLat, aLng, bLat, bLng) {
@@ -1438,13 +1483,19 @@ function metresBetween(aLat, aLng, bLat, bLng) {
 
 async function loadPlaces() {
   try {
-    const r = await fetch("/api/places");
+    const [r, o] = await Promise.all([
+      fetch("/api/places?" + W()),
+      // The other side's places too, for one purpose: saying "you are at the
+      // rental — switch?" when the phone is somewhere this world does not know.
+      fetch("/api/places?world=" + otherWorld()),
+    ]);
     if (r.ok) {
       places = (await r.json()).places || [];
-      try { localStorage.setItem("note.places", JSON.stringify(places)); } catch {}
+      try { localStorage.setItem("note.places." + context, JSON.stringify(places)); } catch {}
     }
+    if (o.ok) otherPlaces = (await o.json()).places || [];
   } catch {
-    try { places = JSON.parse(localStorage.getItem("note.places") || "[]"); } catch { places = []; }
+    try { places = JSON.parse(localStorage.getItem("note.places." + context) || "[]"); } catch { places = []; }
   }
 }
 
@@ -1479,9 +1530,17 @@ function paintPlaceChip() {
     chip.innerHTML = "At <strong>" + esc(herePlace.name) + "</strong>";
   } else if (herePlace) {
     chip.innerHTML = "At <strong>" + esc(herePlace.name) + "</strong>?";
+  } else if (elsewhere) {
+    // The phone is somewhere the other side knows and this side does not. Offer
+    // the switch, not the place: the note belongs over there.
+    chip.innerHTML = "At <strong>" + esc(elsewhere.name) + "</strong> \u2014 switch to " +
+      otherWorld() + "?";
+    chip.dataset.switch = otherWorld();
+    return;
   } else {
     chip.innerHTML = places.length ? "Where was this?" : "Add a place";
   }
+  delete chip.dataset.switch;
 }
 
 async function suggestPlace() {
@@ -1489,12 +1548,12 @@ async function suggestPlace() {
 
   // A suggestion, not a decision: the nearest place within its radius is offered
   // unaccepted, and the chip opens the full list either way.
-  if (hereCoords && !placeAccepted) {
-    herePlace = places
-      .map((p) => ({ p, d: metresBetween(hereCoords.lat, hereCoords.lng, p.lat, p.lng) }))
-      .filter((x) => x.d <= (x.p.radius_m || 150))
-      .sort((a, b) => a.d - b.d)[0]?.p || null;
-  }
+  const nearest = (list) => !hereCoords ? null : list
+    .map((p) => ({ p, d: metresBetween(hereCoords.lat, hereCoords.lng, p.lat, p.lng) }))
+    .filter((x) => x.d <= (x.p.radius_m || 150))
+    .sort((a, b) => a.d - b.d)[0]?.p || null;
+  if (hereCoords && !placeAccepted) herePlace = nearest(places);
+  elsewhere = herePlace ? null : nearest(otherPlaces);
   paintPlaceChip();
 }
 
@@ -1507,7 +1566,11 @@ async function suggestPlace() {
 
    So detection stays as a suggestion and this is the way in: every place, chosen by
    hand, plus a way to add one. */
-$("placeChip").addEventListener("click", openPlaces);
+$("placeChip").addEventListener("click", () => {
+  const to = $("placeChip").dataset.switch;
+  if (to) { setWorld(to); return; }
+  openPlaces();
+});
 
 function openPlaces() {
   openOverlay("places");
@@ -2300,7 +2363,7 @@ let recent = [];
 async function loadRecent() {
   if (!navigator.onLine) return;
   try {
-    const r = await fetch("/api/entries?limit=10");
+    const r = await fetch("/api/entries?limit=10&" + W());
     if (r.ok) { recent = (await r.json()).entries || []; renderRecent(); }
   } catch {}
 }
@@ -2342,7 +2405,7 @@ async function loadDay() {
     (rel ? ' <span class="rel">' + rel + "</span>" : "");
   $("dayNext").disabled = dayOffset >= 0;   // there are no captures in the future
   try {
-    const r = await fetch("/api/entries?view=day&from=" + b.from + "&to=" + b.to);
+    const r = await fetch("/api/entries?view=day&from=" + b.from + "&to=" + b.to + "&" + W());
     const d = await r.json();
     fill($("dayList"), d.entries || [], "Nothing logged this day.");
   } catch {
@@ -2355,7 +2418,7 @@ $("dayNext").addEventListener("click", () => { if (dayOffset < 0) { dayOffset++;
 /* ---- open items ---- */
 async function loadOpen() {
   try {
-    const r = await fetch("/api/entries?view=open");
+    const r = await fetch("/api/entries?view=open&" + W());
     const d = await r.json();
     const list = d.entries || [];
     fill($("openList"), list, "Nothing open. All caught up.", { full: true });
@@ -2367,7 +2430,7 @@ async function loadOpen() {
 async function loadOpenCount() {
   if (!navigator.onLine) return;
   try {
-    const r = await fetch("/api/entries?view=open&limit=100");
+    const r = await fetch("/api/entries?view=open&limit=100&" + W());
     if (r.ok) setBadge(((await r.json()).entries || []).length);
   } catch {}
 }
@@ -2386,8 +2449,8 @@ $("q").addEventListener("input", (e) => {
   searchTimer = setTimeout(async () => {
     try {
       const [r, l] = await Promise.all([
-        fetch("/api/entries?view=search&q=" + encodeURIComponent(q)),
-        fetch("/api/lookup?q=" + encodeURIComponent(q)),
+        fetch("/api/entries?view=search&q=" + encodeURIComponent(q) + "&" + W()),
+        fetch("/api/lookup?q=" + encodeURIComponent(q) + "&" + W()),
       ]);
       const d = await r.json();
       const found = l.ok ? await l.json() : { items: [], people: [], places: [] };
@@ -2505,6 +2568,10 @@ function renderDetail(rejectedText) {
       '<button class="btn sm" id="saveEdit">Save changes</button>' +
       '<button class="btn sm ghost" id="toggleOpen">' +
         (e.is_open ? "Mark done" : "Reopen") + "</button>" +
+      // Captured on the wrong side. One tap; links and place come off with it,
+      // since they belonged to the side it is leaving.
+      '<button class="btn sm ghost" id="moveEntry">Move to ' +
+        (e.context === "work" ? "personal" : "work") + "</button>" +
     "</div>" +
     // Offered only while it is still true. A button that explains it is too late
     // after you press it is worse than no button.
@@ -2523,6 +2590,19 @@ function renderDetail(rejectedText) {
       "<dt>id</dt><dd>" + esc(e.id) + "</dd>" +
     "</dl>" + subj + thread;
 
+  $("moveEntry").addEventListener("click", async () => {
+    const to = e.context === "work" ? "personal" : "work";
+    if (!confirm("Move this note to " + to + "? Its links to items, people and place come off.")) return;
+    const r = await fetch("/api/entries/" + encodeURIComponent(e.id) + "/move", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ context: to }),
+    }).catch(() => null);
+    if (!r || !r.ok) { err("Could not move it — is there a connection?"); return; }
+    closeDetail();
+    refreshCurrentView();
+    loadRecent();
+    loadOpenCount();
+  });
   $("saveEdit").addEventListener("click", saveEdit);
   $("toggleOpen").addEventListener("click", toggleOpen);
   if ($("deleteEntry")) $("deleteEntry").addEventListener("click", deleteEntry);
@@ -2704,6 +2784,7 @@ document.querySelector("nav").addEventListener("click", (e) => {
    One line per release, newest first. Kept deliberately short: it exists to answer
    "did the thing I asked for actually ship", not to be release notes. */
 const RELEASES = [
+  ["1.24.0", "Work and Personal never mix: a switch in the header, maroon for work; places belong to a world; move a note across; Claude asks which"],
   ["1.23.0", "People, linked to places and notes; \u201cnew item X\u201d in a note adds it; search finds names; Things became Places and items"],
   ["1.22.0", "Rename or move a place instead of deleting it; the map says when it is offline"],
   ["1.21.0", "Drag things around the tree; + on a row adds a part inside it"],
@@ -2967,7 +3048,7 @@ async function loadSubjects() {
   // Places come with it: they are the roots of the tree, and a tree drawn from a
   // stale places list files things under names that have been renamed or removed.
   try {
-    const [r, pr] = await Promise.all([fetch("/api/subjects"), fetch("/api/people"), loadPlaces()]);
+    const [r, pr] = await Promise.all([fetch("/api/subjects?" + W()), fetch("/api/people?" + W()), loadPlaces()]);
     subjects = (await r.json()).subjects || [];
     people = pr.ok ? (await pr.json()).people || [] : people;
   } catch {
@@ -3357,8 +3438,7 @@ function renderPersonEdit() {
       ? places.map((x) => '<button class="chip" data-pp="' + esc(x.id) + '" aria-pressed="' +
           String((p.place_ids || []).includes(x.id)) + '">' + esc(x.name) + "</button>").join("")
       : '<span class="empty" style="padding:0">No places yet.</span>') + "</div>" +
-    "<h2>Context</h2>" +
-    '<div class="chips" id="pCtx">' + ["work", "home"].map((c) =>
+    '<div class="chips" id="pCtx" hidden>' + ["work", "personal"].map((c) =>
       '<button class="chip" data-pctx="' + c + '" aria-pressed="' + String(p.context === c) + '">' +
       c[0].toUpperCase() + c.slice(1) + "</button>").join("") + "</div>" +
     '<h2>How I know them</h2><textarea id="pNotes" style="min-height:80px">' + esc(p.notes || "") + "</textarea>" +
@@ -3622,8 +3702,8 @@ function renderSubjectEdit() {
     '<input id="subjName" value="' + esc(s.name) + '" style="width:100%;border:1px solid var(--line);' +
       'border-radius:10px;background:var(--card);color:var(--ink);padding:12px;' +
       'font:700 19px var(--font-ui);margin-bottom:10px">' +
-    '<div class="chips" id="subjCtx">' +
-      ["work", "home"].map((c) =>
+    '<div class="chips" id="subjCtx" hidden>' +
+      ["work", "personal"].map((c) =>
         '<button class="chip" data-subj-ctx="' + c + '" aria-pressed="' + (s.context === c) + '">' +
         c[0].toUpperCase() + c.slice(1) + "</button>").join("") +
     "</div>" +
@@ -3731,7 +3811,7 @@ const CLAUDE_PROMPT = [
   '  "attributes": {"Make": "Ingersoll Rand", "Voltage / phase": "480V 3ph"}}]',
   "",
   'type is one of: "equipment", "vehicle", "generic".',
-  'context is one of: "work", "home".',
+  'context is one of: "work", "personal".',
   "attributes is free-form — only include fields I actually mention.",
   "",
   "Here is what I have:",
@@ -3958,7 +4038,8 @@ const TYPE_HINT = {
  */
 async function openAddThing(preset) {
   await loadTemplates();
-  newCtx = context;                      // whatever you are capturing in right now
+  newCtx = context;                      // the world you are in; there is no chooser
+  $("newWorld").textContent = "This is a " + context + " item.";
   $("newName").value = "";
   $("newHome").innerHTML =
     homeOptions(preset != null ? preset : herePlace ? "p:" + herePlace.id : "", null);
@@ -4151,7 +4232,7 @@ const clockOf = fmtTime;
 
 async function loadActivity() {
   try {
-    const r = await fetch("/api/activities/current");
+    const r = await fetch("/api/activities/current?" + W());
     if (!r.ok) return;
     const d = await r.json();
     act.current = d.current;
@@ -4197,7 +4278,7 @@ async function openActivity() {
   const b = dayBounds(0);
   let today = [];
   try {
-    today = (await (await fetch("/api/activities?from=" + b.from + "&to=" + b.to)).json()).activities || [];
+    today = (await (await fetch("/api/activities?from=" + b.from + "&to=" + b.to + "&" + W())).json()).activities || [];
   } catch {}
   renderActivity(today);
 }
@@ -4294,7 +4375,7 @@ $("actBody").addEventListener("change", async (e) => {
   if (!id || !t.value) return;
   const which = t.dataset.start ? "started_at" : "ended_at";
   const from = (await (await fetch("/api/activities?from=" + dayBounds(0).from +
-    "&to=" + dayBounds(0).to)).json()).activities.find((a) => a.id === id);
+    "&to=" + dayBounds(0).to + "&" + W())).json()).activities.find((a) => a.id === id);
   if (!from) return;
   const base = new Date(which === "started_at" ? from.started_at : (from.ended_at || from.started_at));
   const [h, m] = t.value.split(":").map(Number);
@@ -4358,7 +4439,7 @@ function hourOptions(count) {
    sheet, and a name asked for here would be a second question at the worst moment. */
 function maybeAskDayStart() {
   if (act.current || !$("actPrompt").hidden) return;
-  const label = context === "home" ? "At home" : "At work";
+  const label = context === "personal" ? "Personal" : "At work";
   const opts = hourOptions(3).map((d) => ({
     label: clockOf(d.getTime()),
     run: () => startActivity(false, label, d.getTime()),

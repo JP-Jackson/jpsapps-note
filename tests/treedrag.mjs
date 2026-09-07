@@ -51,11 +51,11 @@ const shed = (await post("/api/places", { name: "zzShed " + TAG, lat: 29.0577, l
 const barn = (await post("/api/places", { name: "zzBarn " + TAG, lat: 29.06, lng: -96.97 })).body.id;
 
 const alpha = (await post("/api/subjects",
-  { name: "Alpha " + TAG, type: "generic", context: "home", place_id: shed })).body.id;
+  { name: "Alpha " + TAG, type: "generic", context: "work", place_id: shed })).body.id;
 const beta = (await post("/api/subjects",
-  { name: "Beta " + TAG, type: "equipment", context: "home", place_id: shed })).body.id;
+  { name: "Beta " + TAG, type: "equipment", context: "work", place_id: shed })).body.id;
 const gamma = (await post("/api/subjects",
-  { name: "Gamma " + TAG, type: "equipment", context: "home", parent_id: alpha })).body.id;
+  { name: "Gamma " + TAG, type: "equipment", context: "work", parent_id: alpha })).body.id;
 
 await boot();
 await p.click('nav button[data-view="subjects"]');

@@ -24,6 +24,9 @@ const boot = async () => {
   await p.evaluate(() => sessionStorage.setItem("note-splash", "1"));
   await p.reload({ waitUntil: "networkidle" });
   await p.waitForTimeout(1200);
+  // Everything this run makes is personal, and the page boots into work.
+  await p.click('[data-ctx="personal"]');
+  await p.waitForTimeout(800);
 };
 await boot();
 
@@ -42,8 +45,8 @@ const patch = (path, body) => api(path, {
 
 /* ------------------------------------------------------------ the two trees */
 
-const home = (await post("/api/places", { name: "Home " + TAG, lat: 29.0577094, lng: -96.9786539 })).body.id;
-const rental = (await post("/api/places", { name: "Rental " + TAG, lat: 29.1, lng: -96.9 })).body.id;
+const home = (await post("/api/places", { name: "Home " + TAG, lat: 29.0577094, lng: -96.9786539, context: "home" })).body.id;
+const rental = (await post("/api/places", { name: "Rental " + TAG, lat: 29.1, lng: -96.9, context: "home" })).body.id;
 
 const yard = (await post("/api/subjects",
   { name: "Yard " + TAG, type: "generic", context: "home", place_id: home })).body.id;
@@ -213,7 +216,7 @@ await p.evaluate((id) => {
 // Context is still the sharing boundary and still filters the offer, so it has to
 // match the things being looked for. The chip is clicked rather than set, because
 // choosePlace only moves context when the place has a history to move it by.
-await p.click('[data-ctx="home"]');
+await p.click('[data-ctx="personal"]');
 await p.waitForTimeout(400);
 await p.fill("#body", "checked it over, all good " + TAG);
 await p.click("#save");

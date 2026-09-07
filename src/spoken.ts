@@ -51,7 +51,7 @@ export async function applySpoken(
   const found = parseSpoken(body);
   const out: Applied = { subject_ids: [], person_ids: [] };
   for (const name of found.items) {
-    const have = await db.subjectByName(name);
+    const have = await db.subjectByName(name, context);
     if (have) { out.subject_ids.push(have.id); continue; }
     // Work is mostly machines; home is mostly not. Either is one tap to change.
     const type = context === "work" ? "equipment" : "generic";
@@ -59,7 +59,7 @@ export async function applySpoken(
     out.subject_ids.push(id);
   }
   for (const name of found.people) {
-    const have = await db.personByName(name);
+    const have = await db.personByName(name, context);
     if (have) { out.person_ids.push(have.id); continue; }
     const id = await db.createPerson({ name, context, place_ids: placeId ? [placeId] : [] });
     out.person_ids.push(id);

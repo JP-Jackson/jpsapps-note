@@ -13,7 +13,7 @@
 
 import { Hono } from "hono";
 import type { Env } from "./env";
-import { BadContext, BadParent, Db, VersionConflict, type PlacePatch } from "./db";
+import { BadContext, BadParent, Db, VersionConflict, worldOf, type PlacePatch } from "./db";
 import { fileKey, photoKey } from "./ids";
 import { VERSION } from "./version";
 import { authenticate, AuthError, type Session } from "./auth";
@@ -103,7 +103,9 @@ app.get("/api/health", async (c) => {
  */
 app.use("/api/*", async (c, next) => {
   const session = await authenticate(c.req.raw, c.env);
-  const db = new Db(c.env.DB, session.userId);
+  // ?world=work|personal scopes every list. Work and personal never intertwine,
+  // so the screen says which it is showing and the database holds it to that.
+  const db = new Db(c.env.DB, session.userId, worldOf(c.req.query("world")));
   // The auth lookup ran before this Db existed; count it here so the busiest
   // query on the app is not invisible to the meter.
   db.absorb(session.cost);
@@ -452,7 +454,9 @@ app.post("/api/places", async (c) => {
     return c.json({ error: "lat and lng are required" }, 400);
   }
   const db = c.get("db");
-  const id = await db.createPlace(name, lat, lng, Number(body.radius_m) || 150);
+  // A place belongs to a world: the body may say, else the screen's world, else work.
+  const world = worldOf(typeof body.context === "string" ? body.context : null) ?? db.world ?? "work";
+  const id = await db.createPlace(name, lat, lng, Number(body.radius_m) || 150, world);
   // Past captures made here belong to it — naming a place should explain history,
   // not just label the future.
   const claimed = await db.claimEntriesForPlace(id, lat, lng);
@@ -1078,6 +1082,22 @@ app.delete("/api/people/:id", async (c) => {
   const ok = await c.get("db").deletePerson(c.req.param("id"));
   if (!ok) return c.json({ error: "No such person" }, 404);
   return c.json({ ok: true });
+});
+
+/** A note captured on the wrong side. Its links and place come off with the move. */
+app.post("/api/entries/:id/move", async (c) => {
+  let body: Record<string, unknown>;
+  try {
+    body = (await c.req.json()) as Record<string, unknown>;
+  } catch {
+    return c.json({ error: "Body must be JSON" }, 400);
+  }
+  const world = worldOf(typeof body.context === "string" ? body.context : null);
+  if (!world) return c.json({ error: "context must be work or personal" }, 400);
+  const db = c.get("db");
+  if (!(await db.ownsEntry(c.req.param("id")))) return c.json({ error: "No such entry" }, 404);
+  const moved = await db.moveEntry(c.req.param("id"), world);
+  return c.json({ moved, context: world });
 });
 
 /** Link people to a note after the fact — the same shape as /subjects. */

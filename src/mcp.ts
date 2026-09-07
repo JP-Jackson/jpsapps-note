@@ -15,6 +15,7 @@
  */
 
 import { applySpoken } from "./spoken";
+import { worldOf } from "./db";
 import { Db, type SubjectRow } from "./db";
 import { VERSION } from "./version";
 import { utcDay } from "./ids";
@@ -57,10 +58,15 @@ const TOOLS = [
     inputSchema: {
       type: "object",
       properties: {
+        context: {
+          type: "string", enum: ["work", "personal"],
+          description: "Which world: work or personal. They never mix. If the user has " +
+            "not made it clear which one they mean, ASK before calling.",
+        },
         query: { type: "string", description: "Text to look for" },
         limit: { type: "number", description: "Maximum results (default 25)" },
       },
-      required: ["query"],
+      required: ["context", "query"],
     },
   },
   {
@@ -68,21 +74,40 @@ const TOOLS = [
     description: "Everything logged on one day. Use for questions like 'what did I do on Tuesday'.",
     inputSchema: {
       type: "object",
-      properties: { date: { type: "string", description: "YYYY-MM-DD" } },
-      required: ["date"],
+      properties: {
+        context: {
+          type: "string", enum: ["work", "personal"],
+          description: "Which world: work or personal. They never mix. If the user has " +
+            "not made it clear which one they mean, ASK before calling.",
+        },
+        date: { type: "string", description: "YYYY-MM-DD" },
+      },
+      required: ["context", "date"],
     },
   },
   {
     name: "list_open_items",
     description:
       "Unresolved follow-ups, oldest first — the things still outstanding.",
-    inputSchema: { type: "object", properties: {} },
+    inputSchema: { type: "object", properties: {
+        context: {
+          type: "string", enum: ["work", "personal"],
+          description: "Which world: work or personal. They never mix. If the user has " +
+            "not made it clear which one they mean, ASK before calling.",
+        },
+      }, required: ["context"] },
   },
   {
     name: "list_things",
     description:
-      "The things being tracked: equipment, vehicles and anything else with a history.",
-    inputSchema: { type: "object", properties: {} },
+      "The items being tracked: equipment, vehicles and anything else with a history.",
+    inputSchema: { type: "object", properties: {
+        context: {
+          type: "string", enum: ["work", "personal"],
+          description: "Which world: work or personal. They never mix. If the user has " +
+            "not made it clear which one they mean, ASK before calling.",
+        },
+      }, required: ["context"] },
   },
   {
     name: "get_thing",
@@ -91,8 +116,15 @@ const TOOLS = [
       "recurring fault — the last fix is usually already recorded here.",
     inputSchema: {
       type: "object",
-      properties: { name: { type: "string", description: "Name or id of the thing" } },
-      required: ["name"],
+      properties: {
+        name: { type: "string", description: "Name or id of the item" },
+        context: {
+          type: "string", enum: ["work", "personal"],
+          description: "Which world: work or personal. They never mix. If the user has " +
+            "not made it clear which one they mean, ASK before calling.",
+        },
+      },
+      required: ["name", "context"],
     },
   },
   {
@@ -105,7 +137,7 @@ const TOOLS = [
       properties: {
         name: { type: "string" },
         type: { type: "string", enum: ["equipment", "vehicle", "generic"] },
-        context: { type: "string", enum: ["work", "home"] },
+        context: { type: "string", enum: ["work", "personal"] },
         attributes: { type: "object", description: 'e.g. {"Make": "Ingersoll Rand"}' },
         inside: {
           type: "string",
@@ -126,7 +158,7 @@ const TOOLS = [
       type: "object",
       properties: {
         body: { type: "string" },
-        context: { type: "string", enum: ["work", "home"] },
+        context: { type: "string", enum: ["work", "personal"] },
         thing: { type: "string", description: "Name of a thing to attach it to" },
         needs_followup: { type: "boolean" },
       },
@@ -181,6 +213,11 @@ function listNotes(rows: { created_at: number; context: string; body: string | n
 }
 
 async function callTool(db: Db, name: string, args: Json): Promise<{ content: unknown[]; isError?: boolean }> {
+  // Every tool names a world. Without one the answer would either merge the two
+  // sides or silently pick one; either is wrong, so the tool asks instead.
+  const world = worldOf(typeof args.context === "string" ? args.context : null);
+  if (!world) return problem("Which world — work or personal? Ask the user, then call again with context.");
+  db.world = world;
   switch (name) {
     case "search_notes": {
       const q = String(args.query ?? "").trim();
