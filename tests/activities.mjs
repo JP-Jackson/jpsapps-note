@@ -149,8 +149,8 @@ check(/1h 5[0-9]m|2h 0[0-9]m/.test(await p.textContent("#actStrip")),
   await boot();
   await p.click('nav button[data-view="log"]'); await p.waitForTimeout(900);
   const heading = (await p.textContent("#dayLabel")).trim();
-  check(/^[A-Z][a-z]+day, \d{1,2}\/\d{1,2}\/\d{4}$/.test(heading) || heading === "Today",
-    `the day heading reads as a date (${heading})`);
+  check(/^[A-Z][a-z]+day, \d{1,2}\/\d{1,2}\/\d{4}( (Today|Yesterday))?$/.test(heading),
+    `the day heading carries the date, with the relative word as a helper (${heading})`);
   await p.click(`#dayList .entry:has-text("format check ${TAG}")`); await p.waitForTimeout(900);
   const when = await p.$$eval("#detailBody .meta dd", (n) => n.map((x) => x.textContent.trim()));
   check(WANT.test(when[0]), `entry detail shows "Monday, 9/7/2026 1:10 PM" form (${when[0]})`);

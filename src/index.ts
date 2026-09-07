@@ -365,6 +365,24 @@ app.get("/api/places", async (c) => {
  * past captures are nearby so the client can decide whether to ask — asking on the
  * first visit to every customer site would be noise.
  */
+app.delete("/api/places/:id", async (c) => {
+  const gone = await c.get("db").deletePlace(c.req.param("id"));
+  return gone ? c.json({ deleted: true }) : c.json({ error: "No such place" }, 404);
+});
+
+app.patch("/api/places/:id", async (c) => {
+  let body: Record<string, unknown>;
+  try {
+    body = (await c.req.json()) as Record<string, unknown>;
+  } catch {
+    return c.json({ error: "Body must be JSON" }, 400);
+  }
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  if (!name) return c.json({ error: "name is required" }, 400);
+  const ok = await c.get("db").renamePlace(c.req.param("id"), name);
+  return ok ? c.json({ renamed: true }) : c.json({ error: "No such place" }, 404);
+});
+
 app.get("/api/places/nearby", async (c) => {
   const lat = Number(c.req.query("lat"));
   const lng = Number(c.req.query("lng"));

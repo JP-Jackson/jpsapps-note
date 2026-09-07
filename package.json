@@ -1,6 +1,6 @@
 {
   "name": "jpsapps-note",
-  "version": "1.17.0",
+  "version": "1.18.0",
   "description": "Note — a capture-first day log for work and home",
   "scripts": {
     "dev": "wrangler dev",
@@ -10,7 +10,7 @@
     "predeploy": "npm run version:sync",
     "db:migrate": "wrangler d1 migrations apply note --remote",
     "db:migrate:local": "wrangler d1 migrations apply note --local",
-    "test:ui": "node tests/capture-linking.mjs && node tests/offline-linking.mjs && node tests/attachments.mjs && node tests/install.mjs && node tests/delete.mjs && node tests/usage-hero.mjs && node tests/activities.mjs",
+    "test:ui": "node tests/capture-linking.mjs && node tests/offline-linking.mjs && node tests/attachments.mjs && node tests/install.mjs && node tests/delete.mjs && node tests/usage-hero.mjs && node tests/activities.mjs && node tests/places.mjs",
     "icons": "node scripts/make-icons.mjs"
   },
   "repository": {

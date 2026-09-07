@@ -50,6 +50,8 @@ export interface EntryRow {
   id: string;
   /** What was running when this was captured (§11 phase 2). */
   activity_id?: string | null;
+  /** Where it happened — chosen, not always where the phone was (§4). */
+  place_id?: string | null;
   created_at: number;
   synced_at: number | null;
   context: string;
@@ -525,7 +527,7 @@ export class Db {
     return this.all<EntryRow>(
       this.d1
         .prepare(
-          `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open, activity_id
+          `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open, activity_id, place_id
              FROM entries
             WHERE user_id = ? AND deleted_at IS NULL
             ORDER BY created_at DESC
@@ -544,7 +546,7 @@ export class Db {
     return this.all<EntryRow>(
       this.d1
         .prepare(
-          `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open, activity_id
+          `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open, activity_id, place_id
              FROM entries
             WHERE user_id = ? AND deleted_at IS NULL
               AND created_at >= ? AND created_at < ?
@@ -565,7 +567,7 @@ export class Db {
     return this.all<EntryRow>(
       this.d1
         .prepare(
-          `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open, activity_id
+          `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open, activity_id, place_id
              FROM entries
             WHERE user_id = ? AND is_open = 1 AND deleted_at IS NULL
             ORDER BY created_at ASC
@@ -587,7 +589,7 @@ export class Db {
     return this.all<EntryRow>(
       this.d1
         .prepare(
-          `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open, activity_id
+          `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open, activity_id, place_id
              FROM entries
             WHERE user_id = ? AND deleted_at IS NULL
               AND (body LIKE ?2 ESCAPE '\\' OR body_raw LIKE ?2 ESCAPE '\\')
@@ -611,7 +613,7 @@ export class Db {
       this.d1
         .prepare(
           `SELECT e.id, e.created_at, e.synced_at, e.context, e.body, e.body_raw, e.lat, e.lng,
-                  e.is_open, e.activity_id, e.version, e.edited_at,
+                  e.is_open, e.activity_id, e.place_id, e.version, e.edited_at,
                   e.resolved_by AS resolved_by_id, a.label AS activity_label
              FROM entries e
              LEFT JOIN activities a ON a.id = e.activity_id AND a.user_id = e.user_id
@@ -632,7 +634,7 @@ export class Db {
         .bind(id, this.userId),
     );
 
-    const brief = `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open, activity_id
+    const brief = `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open, activity_id, place_id
                      FROM entries WHERE id = ? AND user_id = ? AND deleted_at IS NULL`;
 
     const resolved_by = row.resolved_by_id
@@ -643,7 +645,7 @@ export class Db {
     const resolves = await this.first<EntryRow>(
       this.d1
         .prepare(
-          `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open, activity_id
+          `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open, activity_id, place_id
              FROM entries WHERE resolved_by = ? AND user_id = ? AND deleted_at IS NULL`,
         )
         .bind(id, this.userId),
@@ -903,6 +905,30 @@ export class Db {
    * properly in the caller. A degree of latitude is ~111km everywhere; longitude
    * narrows with latitude, but the box only has to be generous, not exact.
    */
+  /**
+   * Forget a place. Entries keep their coordinates and simply stop naming it —
+   * the capture happened where it happened, whatever the spot was being called.
+   */
+  async deletePlace(id: string): Promise<boolean> {
+    const res = await this.d1.batch([
+      this.d1
+        .prepare("UPDATE entries SET place_id = NULL WHERE user_id = ? AND place_id = ?")
+        .bind(this.userId, id),
+      this.d1.prepare("DELETE FROM places WHERE id = ? AND user_id = ?").bind(id, this.userId),
+    ]);
+    res.forEach((r) => readMeta(this.meter, r.meta));
+    return (res[1]?.meta?.changes ?? 0) > 0;
+  }
+
+  async renamePlace(id: string, name: string): Promise<boolean> {
+    const res = await this.d1
+      .prepare("UPDATE places SET name = ? WHERE id = ? AND user_id = ?")
+      .bind(name.trim(), id, this.userId)
+      .run();
+    readMeta(this.meter, res.meta);
+    return (res.meta?.changes ?? 0) > 0;
+  }
+
   async unnamedNearby(lat: number, lng: number, metres = 150): Promise<{ lat: number; lng: number }[]> {
     const d = (metres * 2) / 111_000;
     return this.all<{ lat: number; lng: number }>(

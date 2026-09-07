@@ -3,6 +3,12 @@
 Mirrors the list shown in Settings. One line per release — enough to answer
 "did the thing I asked for actually ship", not full release notes.
 
+## 1.18.0
+Places are chosen, not only detected. The chip is always there and opens a list of
+every place with a way to add one where you are standing, so a job written up after
+you have left can still be filed where it happened. Places can be renamed and
+removed. The log heading carries the date.
+
 ## 1.17.0
 Dates and times read **Monday, 9/7/2026 1:10 PM** everywhere they are written out,
 from one formatter rather than five ad-hoc ones. An activity started by mistake can
