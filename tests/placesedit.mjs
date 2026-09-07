@@ -168,7 +168,7 @@ lastDialog = "";
 dismissNext = true;
 await p.click(`[data-del-place="${placeId}"]`);
 await p.waitForTimeout(700);
-check(/1 thing filed there becomes unfiled/.test(lastDialog),
+check(/1 item filed there becomes unfiled/.test(lastDialog),
   `the delete confirm counts what it unfiles (${JSON.stringify(lastDialog)})`);
 check(/coordinates/.test(lastDialog), "and still says notes keep their coordinates");
 check(!!(await p.evaluate(async (id) =>

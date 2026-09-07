@@ -1,6 +1,6 @@
 # Note — handoff
 
-Written 7 Sep 2026, at **v1.22.0**. `NOTE_SPEC.md` is the authority: where it states a
+Written 7 Sep 2026, updated at **v1.23.0**. `NOTE_SPEC.md` is the authority: where it states a
 decision and a reason, follow it rather than substituting a different approach. This
 file records where the spec was overruled and why.
 
@@ -20,13 +20,13 @@ Phases 1–6 of §11 are built and deployed. Every push to `main` deploys automa
 | D1 | `note` — `416aa6a6-0c76-4f21-88eb-56a73c3d25bc` (ENAM) |
 | Zero Trust team | `jpsapps.cloudflareaccess.com` |
 | Access app | `Note` — AUD `38735e0c…163b92c`, plus six bypass apps for `/mcp` and OAuth |
-| MCP connector | `https://note.jpsapps.com/mcp` — connected, 7 tools |
+| MCP connector | `https://note.jpsapps.com/mcp` — connected, 7 tools (add_note understands "new item X") |
 | Account | jpsappshq@gmail.com — `bf9f771dae485c448a5740c54ca5771d` |
 
-Migrations applied: `0001_init`, `0002_subjects`, `0003_oauth`, `0004_hierarchy`.
+Migrations applied: `0001_init`, `0002_subjects`, `0003_oauth`, `0004_hierarchy`, `0005_people`.
 Secrets: `OAUTH_SECRET`.
 
-**Live data, as of v1.22.0.** Three things exist and nest: `Yard` → `Front sprinkler`,
+**Live data, as of v1.23.0: fake.** The seed set from `scripts/seed-dev.mjs` (five west-Texas places, ten items, three people, twenty notes) was written to production on 7 Sep so JP could drive the app with data in it. Delete it when he says so. Before that, as of v1.22.0, three things existed and nested: `Yard` → `Front sprinkler`,
 plus a loose `Air conditioner`. The places `Home` and `Rental` do **not** exist yet —
 they need coordinates, and neither the MCP connector nor a sandboxed session can
 create a place. JP adds those two from the map picker, then drags the two things into
@@ -184,6 +184,47 @@ the pin afterwards is a correction to a place that already has a history, and
 sweeping in whatever happens to sit near the new coordinates would rewrite that
 history as a side effect of a typo fix.
 
+## Section 1½, as shipped in 1.23.0 — people, items, spoken adds
+
+Came out of a "how do I actually use this" conversation with JP on 7 Sep, with a
+seeded month of fake work data in front of him. Three decisions, his:
+
+- **"Thing" is out.** The tab is **Places** (the tree was already rooted at them)
+  and a row is an **item**. SQL still says `subjects`, the MCP tools still say
+  `things`; only copy changed. The closed-list entry below is superseded by JP
+  himself, not re-litigated.
+- **People are their own table**, `people`, with `person_places` (many-to-many —
+  a foreman covers three leases) and `entry_people` (same shape as
+  `entry_subjects`). Not a subject type: the tree files a subject in exactly one
+  place and a person is at several, and seeing "Bob Reyes" sitting between two
+  compressors in the tree was what settled it. They live under a **People** chip on
+  the Places tab rather than a sixth nav tab. Migration `0005_people`.
+- **Speaking a record into existence.** `src/spoken.ts`: "new item Compressor 3.
+  Tripping on start." creates Compressor 3 (equipment at work, generic at home,
+  filed at the note's place) and links the note; "new person Bob Reyes" likewise.
+  **Server-side on purpose**, in `POST /api/entries` and the MCP `add_note`, so a
+  queued offline capture and a note from Claude get the same behaviour and the
+  phone never waits on a second request. Only on first arrival (`created`), so a
+  retried POST cannot mint twins. A name that already exists links rather than
+  duplicates. The body is left exactly as dictated — `body_raw` is supposed to be
+  the original.
+- **The link bar offers people** alongside items, same ranking; the chip carries
+  `data-kind="person"` and the queued-link record grows `person_ids`. `flush()`
+  posts each of `/subjects` and `/people` only when non-empty — an empty list is a
+  400 there and a 400 jams the queue.
+- **Search finds names.** `GET /api/lookup?q=` matches items, people and places;
+  the Search tab lists them above the notes. This closes the first half of
+  section 3 below.
+- `scripts/seed-dev.mjs` seeds a realistic month of work data through the API
+  (`--sql USER_ID` prints the same as SQL for `wrangler d1 execute --remote`).
+  Production carried this fake set from 7 Sep so JP could drive it; **it is fake and
+  is to be deleted** once he has decided how the app should feel.
+
+`tests/people.mjs` covers all of it. Two things the run taught: a new person is
+preset to the place you are standing in, so a test must assert *includes*, not
+*equals two*; and a seeded note earlier in the day broke `attachments.mjs`, which
+was clicking the first entry of the day rather than its own.
+
 ## Known defects
 
 None open in the places layer. The rest of the list lives under **What is left**.
@@ -269,8 +310,8 @@ one place that matters most.
 JP, 7 Sep: *"the tree is likely key to organizing everything."* Two things ranked low
 before that move up once it is true:
 
-- **You cannot find a thing.** Search searches notes; the Things list has no filter.
-  At a shop's worth of equipment the tree is unusable without one.
+- **You cannot find a thing.** Search now finds items and people by name (1.23.0);
+  the tree itself still has no filter.
 - **Places are administered from a chip on the capture screen**, but they have been
   the roots of the tree since 1.19. Managing them belongs with the thing they root.
 
@@ -347,7 +388,7 @@ ate it.
 
 ## Spec issues found — decided, not open
 
-- **"Thing" is the right word. Decided, keep it.** Questioned on 7 Sep. That tab now
+- **"Thing" — superseded in 1.23.0 by JP: items under Places.** The reasoning below stands as history. Questioned on 7 Sep. That tab now
   holds a Yard, a Front sprinkler, an air conditioner and a truck, and no more
   specific noun covers all four: Equipment excludes the yard, Assets is the right
   register at the wrong temperature, Inventory implies counting. It is deliberately

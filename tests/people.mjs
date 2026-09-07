@@ -64,7 +64,10 @@ check(personText.includes("zzLease " + TAG) && personText.includes("zzBattery " 
 check(personText.includes("432-555-0100"), "the phone number is on the page");
 const people = (await api("/api/people")).body.people;
 const dana = people.find((x) => x.name === "Dana " + TAG);
-check(dana && dana.place_ids.length === 2 && dana.context === "work", "the API holds both place links");
+// "Includes", not "equals two": a new person is preset to the place you are
+// standing in, and a leftover place near the test coordinates would be a third.
+check(dana && [lease, battery].every((id) => dana.place_ids.includes(id)) && dana.context === "work",
+  "the API holds both place links");
 
 /* ------------------------------------------- + Note from the person page */
 await p.click("#noteWith");

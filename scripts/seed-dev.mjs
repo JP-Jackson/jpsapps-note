@@ -1,13 +1,39 @@
-// Seed a realistic WORK-side data set into a LOCAL wrangler dev. Never production.
-//   NOTE_URL=http://127.0.0.1:8787 node scripts/seed-dev.mjs
-// Coordinates are invented (west Texas). Everything is tagged "seed" in the body
-// so it can be found and deleted later.
+// Seed a realistic WORK-side data set. Two modes:
+//   NOTE_URL=http://127.0.0.1:8787 node scripts/seed-dev.mjs          -> through the API, local dev
+//   node scripts/seed-dev.mjs --sql USER_ID > seed.sql                  -> SQL for wrangler d1 execute --remote
+// Coordinates are invented (west Texas). Fake data: delete it when done with it.
+const SQL_USER = process.argv[2] === "--sql" ? process.argv[3] : null;
 const URL_ = process.env.NOTE_URL || "http://127.0.0.1:8787";
+const out = [];
+const q = (v) => v == null ? "NULL" : typeof v === "number" ? String(v) : "'" + String(v).replace(/'/g, "''") + "'";
+const ins = (table, row) =>
+  out.push(`INSERT INTO ${table} (${Object.keys(row).join(", ")}) VALUES (${Object.values(row).map(q).join(", ")});`);
 const api = async (m, p, b) => {
+  if (SQL_USER) return sqlApi(p, b);
   const r = await fetch(URL_ + p, { method: m, headers: { "content-type": "application/json" }, body: b && JSON.stringify(b) });
   if (!r.ok) throw new Error(m + " " + p + " " + r.status + " " + (await r.text()));
   return r.json();
 };
+// The same calls, written as rows. Mirrors what the routes do, minus validation.
+function sqlApi(p, b) {
+  const id = b.id || crypto.randomUUID(), now = Date.now();
+  if (p === "/api/places") ins("places", { id, user_id: SQL_USER, name: b.name, lat: b.lat, lng: b.lng, radius_m: b.radius_m || 150, created_at: now });
+  else if (p === "/api/subjects") {
+    ins("subjects", { id, user_id: SQL_USER, name: b.name, type: b.type, context: b.context, visibility: "private",
+      created_at: now, parent_id: b.parent_id || null, place_id: b.parent_id ? null : (b.place_id || null) });
+    (b.attributes || []).forEach((a) => ins("subject_attributes", { subject_id: id, user_id: SQL_USER, key: a.key, value: a.value, sort_order: a.sort_order }));
+  } else if (p === "/api/people") {
+    ins("people", { id, user_id: SQL_USER, name: b.name, role: b.role || null, company: b.company || null, phone: b.phone || null,
+      email: b.email || null, notes: b.notes || null, context: b.context, created_at: now });
+    (b.place_ids || []).forEach((pid) => ins("person_places", { person_id: id, place_id: pid, user_id: SQL_USER }));
+  } else if (p === "/api/entries") {
+    ins("entries", { id, user_id: SQL_USER, created_at: b.created_at, synced_at: now, context: b.context, body: b.body, body_raw: b.body,
+      lat: null, lng: null, is_open: b.is_open ? 1 : 0, place_id: b.place_id || null, version: 1 });
+    (b.subject_ids || []).forEach((sid) => ins("entry_subjects", { entry_id: id, subject_id: sid, user_id: SQL_USER }));
+    (b.person_ids || []).forEach((pid) => ins("entry_people", { entry_id: id, person_id: pid, user_id: SQL_USER }));
+  }
+  return { id };
+}
 const day = 86400000, now = Date.now();
 const at = (daysAgo, h, mi = 0) => { const d = new Date(now - daysAgo * day); d.setHours(h, mi, 0, 0); return d.getTime(); };
 
@@ -76,7 +102,10 @@ for (const [d, h, body, place, subs, open] of N) {
     person_ids: subs.filter((x) => H[x]).map((x) => H[x]) });
   n++;
 }
-// One spoken command, so the seed proves the path the phone will use.
+// One spoken command, so the seed proves the path the phone will use. SQL mode has
+// no server to parse it, so the item is made by hand there.
+const dryer = SQL_USER ? [(await api("POST", "/api/subjects", { name: "Shop air dryer", type: "equipment", context: "work", place_id: P.Shop })).id] : [];
 await api("POST", "/api/entries", { id: crypto.randomUUID(), created_at: at(0, 9, 5), context: "work",
-  body: "New item Shop air dryer. Drain valve stuck open, cycling every 30s.", place_id: P.Shop });
+  body: "New item Shop air dryer. Drain valve stuck open, cycling every 30s.", place_id: P.Shop, subject_ids: dryer });
+if (SQL_USER) { console.log(out.join("\n")); process.exit(0); }
 console.log("seeded", Object.keys(P).length, "places,", Object.keys(S).length + 1, "items,", Object.keys(H).length, "people,", n + 1, "notes");
