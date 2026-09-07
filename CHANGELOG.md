@@ -3,6 +3,11 @@
 Mirrors the list shown in Settings. One line per release — enough to answer
 "did the thing I asked for actually ship", not full release notes.
 
+## 1.12.0
+Settings can add Note to your home screen. On Android that is the browser's own
+install dialog; on iPhone it is the three steps to do it from Safari, because Apple
+gives a page no way to ask. Says so plainly when it is already installed.
+
 ## 1.11.1
 Home-screen icon rebuilt. It drew its own rounded square and keyline, which Android
 then masked again — a ring inside a ring, with the keyline shaved at the clip edge.

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#16222E">
-<meta name="app-version" content="1.11.1">
+<meta name="app-version" content="1.12.0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Note">
@@ -26,6 +26,22 @@
     if (c === "high") document.documentElement.dataset.contrast = c;
   } catch (e) {}
 })();
+
+/* Chrome fires beforeinstallprompt early -- often before the main script at the
+   bottom of the page has parsed -- and only once per load. Miss it and there is no
+   way to ask for it again, so it is caught here and stashed for the Settings
+   screen to use later. preventDefault stops Chrome's own mini-infobar, so the
+   install happens where the user went looking for it. */
+window.__install = null;
+addEventListener("beforeinstallprompt", function (e) {
+  e.preventDefault();
+  window.__install = e;
+  document.dispatchEvent(new Event("note:installable"));
+});
+addEventListener("appinstalled", function () {
+  window.__install = null;
+  document.dispatchEvent(new Event("note:installed"));
+});
 </script>
 <style>
   /* Self-hosted so they render identically with no signal (§2) and get cached by the
@@ -281,6 +297,17 @@
   #lbClose{margin-left:auto;background:none;border:0;color:var(--ink-2);
     font-size:20px;line-height:1;padding:0 4px;cursor:pointer}
   #linkChips .chip.done{background:var(--blue);color:#fff;border-color:var(--blue)}
+  .steps{counter-reset:st;list-style:none;margin:0 0 12px;padding:0}
+  .steps li{counter-increment:st;position:relative;padding:0 0 0 30px;margin:9px 0;
+    font-size:14px;line-height:1.5}
+  .steps li::before{content:counter(st);position:absolute;left:0;top:1px;
+    width:21px;height:21px;border-radius:50%;background:var(--navy);color:#fff;
+    font:600 11px/21px var(--font-mono);text-align:center}
+  .steps svg{width:15px;height:15px;vertical-align:-3px;margin:0 1px}
+  .okline{display:flex;align-items:center;gap:9px;font-size:14px;color:var(--ink-2);
+    margin-bottom:12px}
+  .okline .tick{width:20px;height:20px;border-radius:50%;background:var(--blue);
+    color:#fff;font:700 12px/20px var(--font-ui);text-align:center;flex:none}
   .hint{font-size:13px;line-height:1.6;color:var(--ink-2);margin:0 0 12px}
   .hint code{font:500 12px/1 var(--font-mono);background:var(--bg);
     border:1px solid var(--line);border-radius:5px;padding:2px 5px}
@@ -735,6 +762,9 @@
     <strong style="font-size:15px">Settings</strong>
   </div>
   <div class="body">
+    <h2>Install</h2>
+    <div id="install"></div>
+
     <h2>Theme</h2>
     <div class="chips" id="themePick">
       <button class="chip" data-theme-choice="system">System</button>
@@ -1807,6 +1837,7 @@ document.querySelector("nav").addEventListener("click", (e) => {
    One line per release, newest first. Kept deliberately short: it exists to answer
    "did the thing I asked for actually ship", not to be release notes. */
 const RELEASES = [
+  ["1.12.0", "Add to home screen from Settings, with steps for iPhone"],
   ["1.11.1", "App icon rebuilt so Android stops masking an already-masked shape"],
   ["1.11.0", "Attach PDFs and other files to a note or a thing"],
   ["1.10.0", "Work/Home only; link a note after saving; + Note from a thing"],
@@ -2504,8 +2535,92 @@ $("gear").addEventListener("click", async () => {
     "<dt>server</dt><dd>" + esc(server) + "</dd>";
   renderHistory();
   renderConnections();
+  paintInstall();
 });
 $("settingsBack").addEventListener("click", () => closeOverlay("settings"));
+
+/* ------------------------------------------------------------------ install
+   Adding the app to the home screen, which is how it is meant to be used (§3:
+   "home-screen web app"). Three different worlds:
+
+   Chrome hands over a real install dialog through the event stashed in the head.
+   Safari does not -- Apple has never implemented beforeinstallprompt and there is
+   no way to trigger Add to Home Screen from a page -- so iOS gets the steps
+   written out instead of a button that could not work. Everything else gets told
+   where to look in its own menu.
+
+   Pretending the button exists everywhere would be worse than saying it does not. */
+const SHARE_ICON =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+  'stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V3"/>' +
+  '<path d="m8 7 4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>';
+
+function isInstalled() {
+  try {
+    return matchMedia("(display-mode: standalone)").matches ||
+      matchMedia("(display-mode: fullscreen)").matches ||
+      navigator.standalone === true;
+  } catch { return navigator.standalone === true; }
+}
+
+function isApple() {
+  const ua = navigator.userAgent;
+  // An iPad on iPadOS 13+ reports itself as a Mac, so touch points are what
+  // actually separate it from a desktop.
+  return /iPad|iPhone|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+}
+
+function paintInstall() {
+  const box = $("install");
+  if (!box) return;
+
+  if (isInstalled()) {
+    box.innerHTML =
+      '<div class="okline"><span class="tick">&#10003;</span>' +
+      "Running from your home screen. Updates arrive on their own — no reinstalling.</div>";
+    return;
+  }
+
+  if (window.__install) {
+    box.innerHTML =
+      '<p class="hint">Adds Note to your home screen so it opens like an app: ' +
+      "full screen, its own icon, and it still works with no signal.</p>" +
+      '<div class="actions"><button class="btn sm" id="doInstall">Add to home screen</button></div>';
+    $("doInstall").addEventListener("click", async () => {
+      const ev = window.__install;
+      if (!ev) return;
+      $("doInstall").disabled = true;
+      window.__install = null;            // a prompt can only ever be used once
+      try {
+        await ev.prompt();
+        await ev.userChoice;
+      } catch {}
+      paintInstall();
+    });
+    return;
+  }
+
+  if (isApple()) {
+    box.innerHTML =
+      '<p class="hint">Safari can add Note to your home screen, but it has to be ' +
+      "done from its menu — iOS gives no way for a page to ask.</p>" +
+      '<ol class="steps">' +
+        "<li>Tap the Share button " + SHARE_ICON + " at the bottom of Safari</li>" +
+        "<li>Scroll down and tap <b>Add to Home Screen</b></li>" +
+        "<li>Tap <b>Add</b></li>" +
+      "</ol>" +
+      '<p class="hint">It has to be Safari — other iOS browsers do not always offer it.</p>';
+    return;
+  }
+
+  box.innerHTML =
+    '<p class="hint">Your browser can install Note from its own menu — look for ' +
+    "<b>Install app</b> or <b>Add to Home screen</b>. If it is not there, the page " +
+    "may already be installed, or the browser may not support it.</p>";
+}
+
+document.addEventListener("note:installable", paintInstall);
+document.addEventListener("note:installed", paintInstall);
 
 /* --------------------------------------------------------------- connections
    What Claude is connected with, and the switch that cuts it off. The consent
