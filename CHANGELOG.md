@@ -3,6 +3,13 @@
 Mirrors the list shown in Settings. One line per release — enough to answer
 "did the thing I asked for actually ship", not full release notes.
 
+## 1.14.0
+A note can be deleted for 15 minutes after it was captured, and the detail screen
+says how long is left. After that it is permanent. A note still in the offline queue
+can be discarded outright, since it never reached the server. Things can be deleted
+with no window — their notes survive, only the link goes. Photos and files are
+removed from storage, not just unlinked.
+
 ## 1.13.0
 The install offer sits at the top of the capture screen, not only in Settings — one
 tap installs on Android, and on iPhone it opens the Safari steps. Dismiss it and it

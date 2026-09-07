@@ -9,7 +9,7 @@
  * API requests are never cached. A cached /api/me or /api/entries would be a lie, and
  * a capture tool that lies about what synced is worse than one that says "offline".
  */
-const CACHE = "note-shell-1.13.0";
+const CACHE = "note-shell-1.14.0";
 const SHELL = ["/", "/icon-192.png", "/icon-512.png", "/manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {

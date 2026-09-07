@@ -234,6 +234,9 @@ app.get("/api/entries/:id", async (c) => {
     ...detail,
     subjects: await c.get("db").entrySubjects(c.req.param("id")),
     ...shapeAttachments(detail.attachments, c.env.IMG_BASE),
+    // Sent rather than recomputed on the client: the device clock is what made the
+    // timestamp, and it is not necessarily the clock this was judged against.
+    deletable_for_ms: Math.max(0, DELETE_WINDOW_MS - (Date.now() - detail.created_at)),
   });
 });
 
@@ -545,6 +548,59 @@ app.all("/mcp", async (c) => {
   const userId = await bearerUser(c.req.raw, c.env.DB);
   if (!userId) return unauthorized(origin(c));
   return handleMcp(c.req.raw, c.env.DB, userId);
+});
+
+/**
+ * How long a capture stays deletable.
+ *
+ * Long enough to walk back to the truck and notice the mis-tap; short enough that
+ * the log cannot be quietly rewritten after the fact. A log whose past can be edited
+ * at will is not much of a record, and the value of this one is that it says what
+ * actually happened.
+ */
+const DELETE_WINDOW_MS = 15 * 60 * 1000;
+
+/** Objects, once their rows are gone. Best effort — a row without an object is a
+ *  dead link, but an object without a row is invisible and permanent. */
+async function dropObjects(env: Env, rows: { kind: string; r2_key: string | null }[]) {
+  for (const a of rows) {
+    if (!a.r2_key) continue;
+    const bucket = a.kind === "photo" ? env.PHOTOS : env.FILES;
+    await bucket.delete(a.r2_key);
+  }
+}
+
+app.delete("/api/entries/:id", async (c) => {
+  const id = c.req.param("id");
+  const db = c.get("db");
+
+  const entry = await db.entryDetail(id);
+  if (!entry) return c.json({ error: "No such entry" }, 404);
+
+  const age = Date.now() - entry.created_at;
+  if (age > DELETE_WINDOW_MS) {
+    return c.json(
+      {
+        error: "Too late to delete this one — the window has passed.",
+        window_ms: DELETE_WINDOW_MS,
+      },
+      403,
+    );
+  }
+
+  const attachments = await db.deleteEntry(id);
+  if (!attachments) return c.json({ error: "No such entry" }, 404);
+  await dropObjects(c.env, attachments);
+  return c.json({ deleted: true });
+});
+
+/** No window on a thing: it is a record you keep, not a log of what happened. */
+app.delete("/api/subjects/:id", async (c) => {
+  const db = c.get("db");
+  const attachments = await db.deleteSubject(c.req.param("id"));
+  if (!attachments) return c.json({ error: "No such subject" }, 404);
+  await dropObjects(c.env, attachments);
+  return c.json({ deleted: true });
 });
 
 /* ------------------------------------------------------------------- files

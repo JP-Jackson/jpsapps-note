@@ -658,6 +658,82 @@ export class Db {
   }
 
   /** Does this entry belong to the current user? Guards photo attachment. */
+  /**
+   * Delete an entry and everything hanging off it.
+   *
+   * A real delete, not a `deleted_at` stamp. The point of the short window is that a
+   * mis-tap or a typo can be taken back; the point of it being short is that the log
+   * is not quietly rewritable history. A soft delete would satisfy neither — it
+   * leaves behind exactly the rows someone clearing test data wants gone, and it
+   * still counts against D1's row budget (§4).
+   *
+   * The cascade is written out because SQLite does not enforce foreign keys unless
+   * asked, so nothing else is going to do it: another entry may close this one out,
+   * and a dangling resolved_by would leave a thread pointing at a row that is gone.
+   *
+   * Returns the attachments so the caller can delete the objects. Rows come back
+   * first because the object store is the part that cannot be rolled back.
+   */
+  async deleteEntry(id: string): Promise<AttachmentRow[] | null> {
+    const attachments = await this.all<AttachmentRow>(
+      this.d1
+        .prepare(
+          `SELECT id, kind, r2_key, mime, bytes, title, created_at
+             FROM attachments WHERE entry_id = ? AND user_id = ?`,
+        )
+        .bind(id, this.userId),
+    );
+
+    const res = await this.d1.batch([
+      this.d1
+        .prepare("UPDATE entries SET resolved_by = NULL WHERE resolved_by = ? AND user_id = ?")
+        .bind(id, this.userId),
+      this.d1
+        .prepare("DELETE FROM entry_subjects WHERE entry_id = ? AND user_id = ?")
+        .bind(id, this.userId),
+      this.d1.prepare("DELETE FROM attachments WHERE entry_id = ? AND user_id = ?").bind(id, this.userId),
+      this.d1.prepare("DELETE FROM entries WHERE id = ? AND user_id = ?").bind(id, this.userId),
+    ]);
+    res.forEach((r) => readMeta(this.meter, r.meta));
+
+    // The last statement is the entry itself; no rows changed means it was not ours.
+    const gone = (res[res.length - 1]?.meta?.changes ?? 0) > 0;
+    return gone ? attachments : null;
+  }
+
+  /**
+   * Delete a thing. Its notes survive — they are the log, and they happened whether
+   * or not the thing is still being tracked. Only the link between them goes.
+   */
+  async deleteSubject(id: string): Promise<AttachmentRow[] | null> {
+    const attachments = await this.all<AttachmentRow>(
+      this.d1
+        .prepare(
+          `SELECT id, kind, r2_key, mime, bytes, title, created_at
+             FROM attachments WHERE subject_id = ? AND user_id = ?`,
+        )
+        .bind(id, this.userId),
+    );
+
+    const res = await this.d1.batch([
+      this.d1
+        .prepare("UPDATE subjects SET hero_photo_id = NULL WHERE id = ? AND user_id = ?")
+        .bind(id, this.userId),
+      this.d1
+        .prepare("DELETE FROM subject_attributes WHERE subject_id = ? AND user_id = ?")
+        .bind(id, this.userId),
+      this.d1
+        .prepare("DELETE FROM entry_subjects WHERE subject_id = ? AND user_id = ?")
+        .bind(id, this.userId),
+      this.d1.prepare("DELETE FROM attachments WHERE subject_id = ? AND user_id = ?").bind(id, this.userId),
+      this.d1.prepare("DELETE FROM subjects WHERE id = ? AND user_id = ?").bind(id, this.userId),
+    ]);
+    res.forEach((r) => readMeta(this.meter, r.meta));
+
+    const gone = (res[res.length - 1]?.meta?.changes ?? 0) > 0;
+    return gone ? attachments : null;
+  }
+
   async ownsEntry(entryId: string): Promise<boolean> {
     const row = await this.first<{ id: string }>(
       this.d1

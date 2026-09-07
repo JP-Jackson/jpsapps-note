@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#16222E">
-<meta name="app-version" content="1.13.0">
+<meta name="app-version" content="1.14.0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Note">
@@ -297,6 +297,16 @@ addEventListener("appinstalled", function () {
   #lbClose{margin-left:auto;background:none;border:0;color:var(--ink-2);
     font-size:20px;line-height:1;padding:0 4px;cursor:pointer}
   #linkChips .chip.done{background:var(--blue);color:#fff;border-color:var(--blue)}
+  .btn.danger{background:var(--card);color:#C0392B;border:1px solid #C0392B;
+    box-shadow:0 var(--press) 0 #8E2B20}
+  .btn.danger:active{box-shadow:0 0 0 #8E2B20}
+  :root[data-theme="dark"] .btn.danger,
+  :root:not([data-theme="light"]) .btn.danger{color:#F1786A;border-color:#8E3A31;
+    box-shadow:0 var(--press) 0 #6B2A23}
+  .windowleft{align-self:center;font:400 11px/1.6 var(--font-mono);color:var(--ink-2);
+    text-transform:uppercase;letter-spacing:.04em}
+  .rowx{flex:none;align-self:flex-start;background:none;border:0;color:var(--ink-2);
+    font-size:19px;line-height:1;padding:0 2px 0 8px;cursor:pointer}
   #installBar{display:flex;align-items:stretch;gap:0;margin:0 0 12px;
     background:var(--navy);border-radius:12px;overflow:hidden}
   #installGo{flex:1;min-width:0;display:flex;align-items:center;gap:11px;
@@ -1513,7 +1523,10 @@ function entryRow(e, opts) {
     .filter(Boolean).join(" · ");
   el.innerHTML = '<span class="when">' + esc(when) + '</span>' +
     '<span class="what">' + esc(e.body || "(photo)") +
-    '<span class="tag">' + esc(tag) + '</span></span>';
+    '<span class="tag">' + esc(tag) + '</span></span>' +
+    // A queued note has never reached the server, so this is the only place it can
+    // be taken back -- and offline is exactly when a mis-tap wants taking back.
+    (opts.pending ? '<button class="rowx" data-unqueue="' + esc(e.id) + '" title="Discard">&times;</button>' : "");
   return el;
 }
 
@@ -1538,6 +1551,15 @@ async function loadRecent() {
     if (r.ok) { recent = (await r.json()).entries || []; renderRecent(); }
   } catch {}
 }
+document.addEventListener("click", async (ev) => {
+  const x = ev.target.closest("[data-unqueue]");
+  if (!x) return;
+  ev.stopPropagation();
+  if (!confirm("Discard this note? It has not synced yet, so it goes for good.")) return;
+  await del(x.dataset.unqueue);
+  renderRecent();
+});
+
 async function renderRecent() {
   const queued = (await all()).map((q) => Object.assign({}, q, { pending: true }));
   const node = $("log");
@@ -1707,6 +1729,12 @@ function renderDetail(rejectedText) {
       '<button class="btn sm ghost" id="toggleOpen">' +
         (e.is_open ? "Mark done" : "Reopen") + "</button>" +
     "</div>" +
+    // Offered only while it is still true. A button that explains it is too late
+    // after you press it is worse than no button.
+    (e.deletable_for_ms > 0
+      ? '<div class="actions"><button class="btn sm danger" id="deleteEntry">Delete</button>' +
+        '<span class="windowleft">for ' + minutesLeft(e.deletable_for_ms) + " more</span></div>"
+      : "") +
     '<dl class="meta">' +
       "<dt>when</dt><dd>" + esc(fmtFull(e.created_at)) + "</dd>" +
       "<dt>context</dt><dd>" + esc(e.context) + "</dd>" +
@@ -1719,6 +1747,44 @@ function renderDetail(rejectedText) {
 
   $("saveEdit").addEventListener("click", saveEdit);
   $("toggleOpen").addEventListener("click", toggleOpen);
+  if ($("deleteEntry")) $("deleteEntry").addEventListener("click", deleteEntry);
+}
+
+function minutesLeft(ms) {
+  const m = Math.ceil(ms / 60000);
+  return m <= 1 ? "under a minute" : m + " minutes";
+}
+
+/**
+ * Delete a capture, inside the window.
+ *
+ * The window is checked again on the server -- this button only decides whether to
+ * offer it, and the page may have been open a while.
+ */
+async function deleteEntry() {
+  const e = current;
+  if (!e) return;
+  if (!confirm("Delete this note? Its photos and files go too. This cannot be undone.")) return;
+  const btn = $("deleteEntry");
+  btn.disabled = true;
+  try {
+    const r = await fetch("/api/entries/" + encodeURIComponent(e.id), { method: "DELETE" });
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      alert(d.error || "Could not delete that.");
+      btn.disabled = false;
+      return;
+    }
+    closeOverlay("detail");
+    recent = recent.filter((x) => x.id !== e.id);
+    refreshCurrentView();
+    renderRecent();
+    loadRecent();
+    loadOpenCount();
+  } catch {
+    alert("Could not reach the server. Deleting needs a connection.");
+    btn.disabled = false;
+  }
 }
 
 async function saveEdit() {
@@ -1858,6 +1924,7 @@ document.querySelector("nav").addEventListener("click", (e) => {
    One line per release, newest first. Kept deliberately short: it exists to answer
    "did the thing I asked for actually ship", not to be release notes. */
 const RELEASES = [
+  ["1.14.0", "Delete a note within 15 minutes of capture; delete things and queued notes"],
   ["1.13.0", "Install offer on the capture screen, worded for phone or desktop"],
   ["1.12.1", "Install screen now says when the app is still installed but hidden"],
   ["1.12.0", "Add to home screen from Settings, with steps for iPhone"],
@@ -2107,7 +2174,8 @@ function renderSubjectEdit() {
       '<button class="btn sm ghost" id="cancelEdit">Cancel</button>' +
     "</div>" +
     '<div class="actions"><button class="btn sm ghost" id="archiveSubject">' +
-      (s.archived_at ? "Unarchive" : "Archive") + "</button></div>";
+      (s.archived_at ? "Unarchive" : "Archive") + "</button>" +
+      '<button class="btn sm danger" id="deleteSubject">Delete</button></div>';
 
   $("addAttr").addEventListener("click", () => {
     $("attrs").insertAdjacentHTML("beforeend", attrRow("", ""));
@@ -2130,6 +2198,21 @@ function renderSubjectEdit() {
       method: "PATCH", headers: { "content-type": "application/json" },
       body: JSON.stringify({ archived: !s.archived_at }),
     });
+    closeOverlay("subject");
+    loadSubjects();
+  });
+
+  /* No window on a thing. It is a record you keep rather than a log of what
+     happened, so deleting one is a decision, not a correction. The notes logged
+     against it survive -- they happened either way. */
+  $("deleteSubject").addEventListener("click", async () => {
+    const n = (s.entries || []).length;
+    if (!confirm(
+      "Delete " + s.name + "? Its details and files go for good." +
+      (n ? " The " + n + " note" + (n === 1 ? "" : "s") + " logged against it stay in your log." : "")
+    )) return;
+    const r = await fetch("/api/subjects/" + encodeURIComponent(s.id), { method: "DELETE" });
+    if (!r.ok) { alert("Could not delete that."); return; }
     closeOverlay("subject");
     loadSubjects();
   });
