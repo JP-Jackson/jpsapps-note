@@ -36,10 +36,15 @@ await thing("Smith Battery RTU", "equipment", [["Make", "Red Lion Crimson 3.2"],
 await thing("Cygnet server", "equipment", [["Host", "SCADA-01"], ["Version", "9.2"], ["Backup", "nightly to NAS"]], { place_id: P.Office });
 await thing("F-150", "vehicle", [["Year", "2021"], ["Oil", "5W-30 full synthetic"], ["Tires", "275/65R18"], ["Next service", "142,000"]], { place_id: P.Shop });
 await thing("Fluke 87V", "equipment", [["Cal due", "Mar 2027"]], { place_id: P.Shop });
-// People, tried as generic subjects — the experiment JP asked about.
-await thing("Bob Reyes", "generic", [["Role", "Lease operator, Baker"], ["Company", "Permian Ops"], ["Cell", "432-555-0147"], ["How I know him", "Baker startup, 2024"]], { place_id: P["Baker Lease"] });
-await thing("Dana Whitfield", "generic", [["Role", "Foreman, Smith Battery"], ["Cell", "432-555-0192"], ["Note", "Wants texts, not calls"]], { place_id: P["Smith Battery"] });
-await thing("Kyle at ABB support", "generic", [["Case", "CS-88213"], ["Email", "kyle.m@abb-support.example"]]);
+// ---- people: their own records, at one or more places
+const H = {};
+const person = async (name, fields, placeNames) => {
+  H[name] = (await api("POST", "/api/people", { name, context: "work", ...fields,
+    place_ids: placeNames.map((n) => P[n]) })).id;
+};
+await person("Bob Reyes", { role: "Lease operator", company: "Permian Ops", phone: "432-555-0147", notes: "Baker startup, 2024. Knows the site cold." }, ["Baker Lease"]);
+await person("Dana Whitfield", { role: "Foreman", company: "Permian Ops", phone: "432-555-0192", notes: "Wants texts, not calls." }, ["Smith Battery", "Baker Lease"]);
+await person("Kyle Mendez", { role: "Drives support", company: "ABB", email: "kyle.m@abb-support.example", notes: "Case CS-88213 on the Baker VFD." }, []);
 
 // ---- notes: [daysAgo, hour, body, place, subjects[], open]
 const N = [
@@ -47,7 +52,7 @@ const N = [
   [29, 9, "Pulled starter cover. Contactor contacts pitted, overload not tripped. Ordering 100-C23.", "Shop", ["Compressor 2 starter"], true],
   [28, 10, "Baker: transfer pump VFD F0001 on start. Bob says it happens when tank is above 80%.", "Baker Lease", ["Baker VFD — transfer pump", "Bob Reyes"], true],
   [28, 11, "LACT Coriolis reading 0 flow with pump running. Modbus ID 3, checked with Modscan — registers respond, float byte order looks swapped.", "Baker Lease", ["Baker LACT unit"], true],
-  [27, 14, "Called ABB. Kyle opened case CS-88213. Suggested raising accel time 5s→15s and checking motor cable length.", "Office", ["Baker VFD — transfer pump", "Kyle at ABB support"], false],
+  [27, 14, "Called ABB. Kyle opened case CS-88213. Suggested raising accel time 5s→15s and checking motor cable length.", "Office", ["Baker VFD — transfer pump", "Kyle Mendez"], false],
   [26, 9, "Set accel 15s on Baker VFD. Ran three starts at 85% tank, no fault.", "Baker Lease", ["Baker VFD — transfer pump"], false],
   [26, 10, "LACT: swapped float word order in DA30 tag config. Flow now matches ticket. Closed.", "Baker Lease", ["Baker LACT unit"], false],
   [24, 8, "Contactor arrived. Swapped, torqued, ran comp 2 through five starts. Clean.", "Shop", ["Compressor 2 starter"], false],
@@ -66,7 +71,12 @@ const N = [
 let n = 0;
 for (const [d, h, body, place, subs, open] of N) {
   await api("POST", "/api/entries", { id: crypto.randomUUID(), created_at: at(d, h, n % 50), context: "work",
-    body, place_id: P[place], is_open: open, subject_ids: subs.map((s) => S[s]) });
+    body, place_id: P[place], is_open: open,
+    subject_ids: subs.filter((x) => S[x]).map((x) => S[x]),
+    person_ids: subs.filter((x) => H[x]).map((x) => H[x]) });
   n++;
 }
-console.log("seeded", Object.keys(P).length, "places,", Object.keys(S).length, "things,", n, "notes");
+// One spoken command, so the seed proves the path the phone will use.
+await api("POST", "/api/entries", { id: crypto.randomUUID(), created_at: at(0, 9, 5), context: "work",
+  body: "New item Shop air dryer. Drain valve stuck open, cycling every 30s.", place_id: P.Shop });
+console.log("seeded", Object.keys(P).length, "places,", Object.keys(S).length + 1, "items,", Object.keys(H).length, "people,", n + 1, "notes");

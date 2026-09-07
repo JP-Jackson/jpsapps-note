@@ -175,6 +175,38 @@ export interface NewSubject {
   place_id?: string | null;
 }
 
+/** Someone involved. Not a subject: a person is at several places, and is not
+ *  "inside" one the way a VFD is inside a tank battery. */
+export interface PersonRow {
+  id: string;
+  name: string;
+  role: string | null;
+  company: string | null;
+  phone: string | null;
+  email: string | null;
+  notes: string | null;
+  context: string;
+  created_at: number;
+  archived_at: number | null;
+  /** Which places they belong to. Filled by the list and detail queries. */
+  place_ids: string[];
+}
+
+export interface PersonDetail extends PersonRow {
+  entries: EntryRow[];
+}
+
+export interface PersonPatch {
+  name?: string;
+  role?: string | null;
+  company?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  notes?: string | null;
+  context?: string;
+  place_ids?: string[];
+}
+
 /** Where a thing lives. Passing both is a caller error; `setHome` keeps only one. */
 export interface Home {
   parent_id?: string | null;
@@ -780,6 +812,9 @@ export class Db {
       this.d1
         .prepare("DELETE FROM entry_subjects WHERE entry_id = ? AND user_id = ?")
         .bind(id, this.userId),
+      this.d1
+        .prepare("DELETE FROM entry_people WHERE entry_id = ? AND user_id = ?")
+        .bind(id, this.userId),
       this.d1.prepare("DELETE FROM attachments WHERE entry_id = ? AND user_id = ?").bind(id, this.userId),
       this.d1.prepare("DELETE FROM entries WHERE id = ? AND user_id = ?").bind(id, this.userId),
     ]);
@@ -973,6 +1008,9 @@ export class Db {
       // was in just stopped having a name.
       this.d1
         .prepare("UPDATE subjects SET place_id = NULL WHERE user_id = ? AND place_id = ?")
+        .bind(this.userId, id),
+      this.d1
+        .prepare("DELETE FROM person_places WHERE user_id = ? AND place_id = ?")
         .bind(this.userId, id),
       this.d1.prepare("DELETE FROM places WHERE id = ? AND user_id = ?").bind(id, this.userId),
     ]);
@@ -1365,6 +1403,183 @@ export class Db {
         )
         .bind(entryId, this.userId),
     );
+  }
+
+  // ----------------------------------------------------------------- people
+  // Who was involved. Their own table rather than a subject type: the tree files a
+  // subject in exactly one place, and a person covers several. The links are the
+  // same shape as entry_subjects, so a note can name a site, a machine and the
+  // operator who reported it.
+
+  private readonly PERSON_COLS =
+    "id, name, role, company, phone, email, notes, context, created_at, archived_at";
+
+  private async placesOfPeople(ids: string[]): Promise<Map<string, string[]>> {
+    const out = new Map<string, string[]>();
+    if (!ids.length) return out;
+    const rows = await this.all<{ person_id: string; place_id: string }>(
+      this.d1
+        .prepare(
+          `SELECT person_id, place_id FROM person_places
+            WHERE user_id = ? AND person_id IN (${ids.map(() => "?").join(",")})`,
+        )
+        .bind(this.userId, ...ids),
+    );
+    rows.forEach((r) => out.set(r.person_id, [...(out.get(r.person_id) || []), r.place_id]));
+    return out;
+  }
+
+  async listPeople(includeArchived = false): Promise<PersonRow[]> {
+    const rows = await this.all<Omit<PersonRow, "place_ids">>(
+      this.d1
+        .prepare(
+          `SELECT ${this.PERSON_COLS} FROM people WHERE user_id = ?` +
+            (includeArchived ? "" : " AND archived_at IS NULL") +
+            " ORDER BY name COLLATE NOCASE",
+        )
+        .bind(this.userId),
+    );
+    const at = await this.placesOfPeople(rows.map((r) => r.id));
+    return rows.map((r) => ({ ...r, place_ids: at.get(r.id) || [] }));
+  }
+
+  /** Exact name first, then a unique partial. Used by spoken "new person" so a
+   *  second mention links the existing record instead of minting a twin. */
+  async personByName(name: string): Promise<PersonRow | null> {
+    const lower = name.trim().toLowerCase();
+    if (!lower) return null;
+    const all = await this.listPeople();
+    return all.find((p) => p.name.toLowerCase() === lower) ?? null;
+  }
+
+  async subjectByName(name: string): Promise<SubjectRow | null> {
+    const lower = name.trim().toLowerCase();
+    if (!lower) return null;
+    const all = await this.listSubjects();
+    return all.find((s) => s.name.toLowerCase() === lower) ?? null;
+  }
+
+  async createPerson(p: PersonPatch & { name: string; context: string }): Promise<string> {
+    const id = newId();
+    const context = normaliseContext(p.context);
+    await this.run(
+      this.d1
+        .prepare(
+          `INSERT INTO people (id, user_id, name, role, company, phone, email, notes, context, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(id, this.userId, p.name.trim(), p.role ?? null, p.company ?? null,
+          p.phone ?? null, p.email ?? null, p.notes ?? null, context, Date.now()),
+    );
+    if (p.place_ids) await this.setPersonPlaces(id, p.place_ids);
+    return id;
+  }
+
+  /** Replace the set. Only places that are yours are kept, silently: a stale id
+   *  from a deleted place should not fail the whole save. */
+  async setPersonPlaces(personId: string, placeIds: string[]): Promise<void> {
+    const mine = new Set((await this.listPlaces()).map((pl) => pl.id));
+    const keep = [...new Set(placeIds)].filter((id) => mine.has(id));
+    const stmts = [
+      this.d1
+        .prepare("DELETE FROM person_places WHERE person_id = ? AND user_id = ?")
+        .bind(personId, this.userId),
+      ...keep.map((pid) =>
+        this.d1
+          .prepare("INSERT INTO person_places (person_id, place_id, user_id) VALUES (?, ?, ?)")
+          .bind(personId, pid, this.userId)),
+    ];
+    const res = await this.d1.batch(stmts);
+    res.forEach((r) => readMeta(this.meter, r.meta));
+  }
+
+  async updatePerson(id: string, patch: PersonPatch): Promise<boolean> {
+    const owned = await this.first<{ id: string }>(
+      this.d1.prepare("SELECT id FROM people WHERE id = ? AND user_id = ?").bind(id, this.userId),
+    );
+    if (!owned) return false;
+    const sets: string[] = [];
+    const vals: unknown[] = [];
+    const put = (col: string, v: unknown) => { sets.push(`${col} = ?`); vals.push(v); };
+    if (patch.name !== undefined) put("name", patch.name.trim());
+    if (patch.context !== undefined) put("context", normaliseContext(patch.context));
+    for (const k of ["role", "company", "phone", "email", "notes"] as const) {
+      if (patch[k] !== undefined) put(k, patch[k]);
+    }
+    if (sets.length) {
+      await this.run(
+        this.d1
+          .prepare(`UPDATE people SET ${sets.join(", ")} WHERE id = ? AND user_id = ?`)
+          .bind(...vals, id, this.userId),
+      );
+    }
+    if (patch.place_ids) await this.setPersonPlaces(id, patch.place_ids);
+    return true;
+  }
+
+  /** Their notes survive, as with a deleted subject. Only the links go. */
+  async deletePerson(id: string): Promise<boolean> {
+    const res = await this.d1.batch([
+      this.d1.prepare("DELETE FROM entry_people WHERE person_id = ? AND user_id = ?").bind(id, this.userId),
+      this.d1.prepare("DELETE FROM person_places WHERE person_id = ? AND user_id = ?").bind(id, this.userId),
+      this.d1.prepare("DELETE FROM people WHERE id = ? AND user_id = ?").bind(id, this.userId),
+    ]);
+    res.forEach((r) => readMeta(this.meter, r.meta));
+    return (res[res.length - 1]?.meta?.changes ?? 0) > 0;
+  }
+
+  async personDetail(id: string): Promise<PersonDetail | null> {
+    const row = await this.first<Omit<PersonRow, "place_ids">>(
+      this.d1
+        .prepare(`SELECT ${this.PERSON_COLS} FROM people WHERE id = ? AND user_id = ?`)
+        .bind(id, this.userId),
+    );
+    if (!row) return null;
+    const at = await this.placesOfPeople([id]);
+    const entries = await this.all<EntryRow>(
+      this.d1
+        .prepare(
+          `SELECT e.id, e.created_at, e.synced_at, e.context, e.body, e.body_raw,
+                  e.lat, e.lng, e.is_open
+             FROM entries e
+             JOIN entry_people ep ON ep.entry_id = e.id
+            WHERE ep.person_id = ? AND e.user_id = ? AND e.deleted_at IS NULL
+            ORDER BY e.created_at DESC
+            LIMIT 200`,
+        )
+        .bind(id, this.userId),
+    );
+    return { ...row, place_ids: at.get(id) || [], entries };
+  }
+
+  async linkEntryPeople(entryId: string, personIds: string[]): Promise<void> {
+    if (!personIds.length) return;
+    const stmts = personIds.map((pid) =>
+      this.d1
+        .prepare(
+          `INSERT INTO entry_people (entry_id, person_id, user_id) VALUES (?, ?, ?)
+           ON CONFLICT (entry_id, person_id) DO NOTHING`,
+        )
+        .bind(entryId, pid, this.userId),
+    );
+    const res = await this.d1.batch(stmts);
+    res.forEach((r) => readMeta(this.meter, r.meta));
+  }
+
+  async entryPeople(entryId: string): Promise<PersonRow[]> {
+    const rows = await this.all<Omit<PersonRow, "place_ids">>(
+      this.d1
+        .prepare(
+          `SELECT p.id, p.name, p.role, p.company, p.phone, p.email, p.notes, p.context,
+                  p.created_at, p.archived_at
+             FROM people p
+             JOIN entry_people ep ON ep.person_id = p.id
+            WHERE ep.entry_id = ? AND p.user_id = ?
+            ORDER BY p.name COLLATE NOCASE`,
+        )
+        .bind(entryId, this.userId),
+    );
+    return rows.map((r) => ({ ...r, place_ids: [] }));
   }
 
   // ------------------------------------------------------------- activities

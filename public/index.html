@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#16222E">
-<meta name="app-version" content="1.22.0">
+<meta name="app-version" content="1.23.0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Note">
@@ -601,14 +601,15 @@ addEventListener("appinstalled", function () {
     color:var(--ink-2)}
   .spec .v{font-size:15px;line-height:1.45;word-wrap:break-word}
   .spec .v.none{color:var(--ink-2);font-style:italic}
+  .spec .v a{color:var(--accent,var(--blue))}
 
   /* ---------- subjects ---------- */
-  #subject{position:fixed;inset:0;z-index:40;background:var(--bg);overflow-y:auto;padding:0 0 40px}
-  #subject .bar{background:var(--navy);color:#fff;display:flex;align-items:center;gap:12px;
+  #person,#subject{position:fixed;inset:0;z-index:40;background:var(--bg);overflow-y:auto;padding:0 0 40px}
+  #person .bar,#subject .bar{background:var(--navy);color:#fff;display:flex;align-items:center;gap:12px;
     padding:12px 16px;padding-top:calc(12px + env(safe-area-inset-top));position:sticky;top:0}
-  #subject .bar button{background:none;border:0;color:#fff;font:600 15px var(--font-ui);
+  #person .bar button,#subject .bar button{background:none;border:0;color:#fff;font:600 15px var(--font-ui);
     cursor:pointer;padding:4px 0}
-  #subject .body{max-width:560px;margin:0 auto;padding:16px}
+  #person .body,#subject .body{max-width:560px;margin:0 auto;padding:16px}
   #subject img.photo{width:100%;border-radius:12px;border:1px solid var(--line);
     margin-bottom:10px;display:block}
   .subj{background:var(--card);border:1px solid var(--line);border-radius:10px;
@@ -865,7 +866,7 @@ addEventListener("appinstalled", function () {
     <input type="file" id="filePick" accept="image/*" capture="environment" hidden>
     <input type="file" id="docPick" multiple hidden>
 
-    <textarea id="body" placeholder="What happened? (tap the mic on your keyboard to dictate)"></textarea>
+    <textarea id="body" placeholder="What happened? Dictate with the keyboard mic. Say &quot;new item X&quot; or &quot;new person X&quot; to add one."></textarea>
 
     <h2>Just captured</h2>
     <div id="log"><div class="empty">Nothing yet.</div></div>
@@ -889,13 +890,14 @@ addEventListener("appinstalled", function () {
 
   <!-- ============ SUBJECTS ============ -->
   <section id="view-subjects" hidden>
-    <button class="btn" id="addSubject" style="margin-bottom:14px">+ Add a thing</button>
+    <button class="btn" id="addSubject" style="margin-bottom:14px">+ Add an item</button>
     <!-- Tree by default: the nesting is the thing that was missing, and a flat list
          of forty names is what it was missing from. The flat list stays because it
          is the faster way to find one thing when you already know its name. -->
     <div class="chips" id="thingsMode" style="margin-bottom:12px">
       <button class="chip" data-tmode="tree" aria-pressed="true">Tree</button>
       <button class="chip" data-tmode="list" aria-pressed="false">List</button>
+      <button class="chip" data-tmode="people" aria-pressed="false">People</button>
     </div>
     <div id="subjectList"><div class="empty">Loading…</div></div>
     <h2>Bulk add</h2>
@@ -959,10 +961,10 @@ addEventListener("appinstalled", function () {
 <div id="addThing" hidden>
   <div class="bar">
     <button id="addBack">&lsaquo; Cancel</button>
-    <strong style="font-size:15px">Add a thing</strong>
+    <strong style="font-size:15px">Add an item</strong>
   </div>
   <div class="body">
-    <p class="empty" style="padding-top:0">A <em>thing</em> is anything you want a history for —
+    <p class="empty" style="padding-top:0">An <em>item</em> is anything you want a history for —
       a truck, a compressor, the AC unit. Notes you log against it build up its record.</p>
 
     <h2>What is it called?</h2>
@@ -983,7 +985,7 @@ addEventListener("appinstalled", function () {
     </div>
 
     <h2>Where does it live?</h2>
-    <p class="empty" style="padding-top:0">Optional. A place, or another thing —
+    <p class="empty" style="padding-top:0">Optional. A place, or another item —
       the front sprinkler lives in the yard, and the yard is at home.</p>
     <select id="newHome" style="width:100%;border:1px solid var(--line);border-radius:8px;
       background:var(--card);color:var(--ink);padding:11px;font:400 15px var(--font-ui);
@@ -996,9 +998,16 @@ addEventListener("appinstalled", function () {
 <div id="subject" hidden>
   <div class="bar">
     <button id="subjectBack">&lsaquo; Back</button>
-    <strong style="font-size:15px">Thing</strong>
+    <strong style="font-size:15px">Item</strong>
   </div>
   <div class="body" id="subjectBody"></div>
+</div>
+<div id="person" hidden>
+  <div class="bar">
+    <button id="personBack">&lsaquo; Back</button>
+    <strong style="font-size:15px">Person</strong>
+  </div>
+  <div class="body" id="personBody"></div>
 </div>
 
 <div id="places" hidden>
@@ -1178,7 +1187,7 @@ addEventListener("appinstalled", function () {
     Open<span class="badge" id="openBadge" hidden>0</span></button>
   <button data-view="subjects">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg>
-    Things</button>
+    Places</button>
   <button data-view="search">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
     Search</button>
@@ -1653,7 +1662,7 @@ $("placesBody").addEventListener("click", async (e) => {
     // must not quietly change four.
     const n = (p && p.things) || 0;
     const rooted = n
-      ? "\n\n" + (n === 1 ? "1 thing filed there becomes" : n + " things filed there become") +
+      ? "\n\n" + (n === 1 ? "1 item filed there becomes" : n + " items filed there become") +
         " unfiled. Nothing is deleted with it."
       : "";
     if (!confirm("Remove " + (p ? p.name : "this place") + "?" + rooted +
@@ -1997,7 +2006,12 @@ $("againstChip").addEventListener("click", () => { linkTo = null; paintAgainst()
  */
 function linkCandidates(text, ctx) {
   const t = (text || "").toLowerCase();
-  const live = subjects.filter((s) => !s.archived_at && s.context === ctx);
+  const live = [
+    ...subjects.filter((s) => !s.archived_at && s.context === ctx),
+    // People rank by the same rule. They carry kind so the chip knows which link
+    // table it is writing to; items have no kind and always did.
+    ...people.filter((p) => !p.archived_at && p.context === ctx).map((p) => ({ ...p, kind: "person" })),
+  ];
   const score = (s) => {
     const name = (s.name || "").toLowerCase();
     if (!name) return 0;
@@ -2030,7 +2044,7 @@ function closeLinkBar() {
 function offerLink(rec) {
   // Already decided at capture, or nothing to offer: say nothing rather than
   // showing an empty prompt that has to be dismissed.
-  const cands = rec.subject_ids && rec.subject_ids.length
+  const cands = (rec.subject_ids && rec.subject_ids.length) || (rec.person_ids && rec.person_ids.length)
     ? [] : linkCandidates(rec.body, rec.context);
   if (!cands.length) { closeLinkBar(); return; }
 
@@ -2042,6 +2056,7 @@ function offerLink(rec) {
     const b = document.createElement("button");
     b.className = "chip";
     b.dataset.link = sub.id;
+    if (sub.kind === "person") b.dataset.kind = "person";
     b.textContent = sub.name;
     box.append(b);
   });
@@ -2056,6 +2071,7 @@ $("linkChips").addEventListener("click", async (e) => {
   const b = e.target.closest("[data-link]");
   if (!b || !lastSaved || b.classList.contains("done")) return;
   const entryId = lastSaved.id, subjectId = b.dataset.link;
+  const key = b.dataset.kind === "person" ? "person_ids" : "subject_ids";
   b.classList.add("done");
   b.textContent = "\u2713 " + b.textContent;
 
@@ -2064,12 +2080,12 @@ $("linkChips").addEventListener("click", async (e) => {
   // the link is queued on its own and flushed the same way.
   const queued = await one(entryId);
   if (queued) {
-    queued.subject_ids = [...new Set([...(queued.subject_ids || []), subjectId])];
+    queued[key] = [...new Set([...(queued[key] || []), subjectId])];
     await put(queued);
   } else {
-    const pending = (await allLinks()).find((l) => l.id === entryId);
-    const ids = [...new Set([...((pending && pending.subject_ids) || []), subjectId])];
-    await putLink({ id: entryId, subject_ids: ids });
+    const pending = (await allLinks()).find((l) => l.id === entryId) || { id: entryId };
+    pending[key] = [...new Set([...(pending[key] || []), subjectId])];
+    await putLink(pending);
   }
   flush();
   clearTimeout(lbTimer);
@@ -2106,7 +2122,8 @@ $("save").addEventListener("click", async () => {
     body: text || null,
     lat, lng,
     is_open: flagged,
-    subject_ids: linkTo ? [linkTo.id] : [],
+    subject_ids: linkTo && linkTo.kind !== "person" ? [linkTo.id] : [],
+    person_ids: linkTo && linkTo.kind === "person" ? [linkTo.id] : [],
     // What was running when this happened, not when the queue drains (§6).
     activity_id: act.current ? act.current.id : null,
     place_id: placeAccepted && herePlace ? herePlace.id : null,
@@ -2145,6 +2162,7 @@ async function flush() {
           id: rec.id, created_at: rec.created_at, context: rec.context,
           body: rec.body, lat: rec.lat, lng: rec.lng, is_open: rec.is_open,
           subject_ids: rec.subject_ids || [],
+          person_ids: rec.person_ids || [],
           place_id: rec.place_id || null,
           activity_id: rec.activity_id || null,
         }),
@@ -2179,15 +2197,24 @@ async function flush() {
     // Links go after entries, so one queued alongside its own entry lands second and
     // finds it. The endpoint ignores a pair it already has, so a retry is free.
     for (const link of await allLinks()) {
-      const res = await fetch("/api/entries/" + encodeURIComponent(link.id) + "/subjects", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ subject_ids: link.subject_ids || [] }),
-      });
-      if (res.status === 401 || res.status === 403) { location.reload(); return; }
-      // A 404 means the entry is gone for good. Keeping the link would retry it
-      // forever, so drop it rather than jam the queue behind something unfixable.
-      if (!res.ok && res.status !== 404) throw new Error("link " + res.status);
+      // Two endpoints, one record. Each is skipped when it has nothing to send:
+      // an empty list is a 400 there, and a 400 would jam the queue for good.
+      const sends = [
+        ["subjects", { subject_ids: link.subject_ids || [] }, (link.subject_ids || []).length],
+        ["people", { person_ids: link.person_ids || [] }, (link.person_ids || []).length],
+      ];
+      for (const [what, body, any] of sends) {
+        if (!any) continue;
+        const res = await fetch("/api/entries/" + encodeURIComponent(link.id) + "/" + what, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (res.status === 401 || res.status === 403) { location.reload(); return; }
+        // A 404 means the entry is gone for good. Keeping the link would retry it
+        // forever, so drop it rather than jam the queue behind something unfixable.
+        if (!res.ok && res.status !== 404) throw new Error("link " + res.status);
+      }
       await delLink(link.id);
     }
     err("");
@@ -2358,9 +2385,28 @@ $("q").addEventListener("input", (e) => {
   if (q.length < 2) { fill($("searchList"), [], "Type at least 2 characters."); return; }
   searchTimer = setTimeout(async () => {
     try {
-      const r = await fetch("/api/entries?view=search&q=" + encodeURIComponent(q));
+      const [r, l] = await Promise.all([
+        fetch("/api/entries?view=search&q=" + encodeURIComponent(q)),
+        fetch("/api/lookup?q=" + encodeURIComponent(q)),
+      ]);
       const d = await r.json();
-      fill($("searchList"), d.entries || [], 'Nothing matches "' + q + '".', { full: true });
+      const found = l.ok ? await l.json() : { items: [], people: [], places: [] };
+      const named = [
+        ...(found.items || []).map((x) => ({ ...x, kind: x.type, attr: "data-subject-id" })),
+        ...(found.people || []).map((x) => ({ ...x, kind: "person", attr: "data-person-id" })),
+      ];
+      const any = named.length || (d.entries || []).length;
+      fill($("searchList"), d.entries || [], any ? "No notes match." : 'Nothing matches "' + q + '".', { full: true });
+      // Names first: the page you were looking for beats the notes that mention it.
+      if (named.length) {
+        const box = document.createElement("div");
+        box.className = "found";
+        box.innerHTML = named.map((x) =>
+          '<button class="subj" ' + x.attr + '="' + esc(x.id) + '">' +
+          '<span class="nm">' + esc(x.name) + "</span>" +
+          '<span class="kind">' + esc(x.kind) + "</span></button>").join("");
+        $("searchList").prepend(box);
+      }
     } catch {
       fill($("searchList"), [], "Offline — search needs a connection.");
     }
@@ -2429,11 +2475,15 @@ function renderDetail(rejectedText) {
     ? '<div class="rawnote"><b>As originally dictated</b>' + esc(e.body_raw) + "</div>"
     : "";
 
-  const subj = (e.subjects || []).length
-    ? '<p class="thread">About</p>' + e.subjects.map((x) =>
+  const subj = (e.subjects || []).length || (e.people || []).length
+    ? '<p class="thread">About</p>' + (e.subjects || []).map((x) =>
         '<button class="subj" data-subject-id="' + esc(x.id) + '">' +
         '<span class="nm">' + esc(x.name) + "</span>" +
-        '<span class="kind">' + esc(x.type) + "</span></button>").join("")
+        '<span class="kind">' + esc(x.type) + "</span></button>").join("") +
+      (e.people || []).map((x) =>
+        '<button class="subj" data-person-id="' + esc(x.id) + '">' +
+        '<span class="nm">' + esc(x.name) + "</span>" +
+        '<span class="kind">person</span></button>').join("")
     : "";
 
   let thread = "";
@@ -2564,7 +2614,7 @@ async function toggleOpen() {
    same path and the stack can never drift out of step with what is on screen. */
 // Order matters: the topmost open one is what back should close, so newer/stacked
 // sheets come first. Miss one here and back silently falls through to leaving the app.
-const OVERLAYS = ["mapPick", "notesImport", "addThing", "detail", "subject", "activity", "places", "settings"];
+const OVERLAYS = ["mapPick", "notesImport", "addThing", "detail", "subject", "person", "activity", "places", "settings"];
 
 function openOverlay(id) {
   $(id).hidden = false;
@@ -2588,6 +2638,7 @@ function closeOverlay(id) {
 function closeOverlayTo(id, nextView) {
   $(id).hidden = true;
   if (id === "subject") currentSubject = null;
+  if (id === "person") currentPerson = null;
   if (history.state && history.state.overlay === id) {
     history.replaceState({ view: nextView }, "");
   } else if (nextView !== view) {
@@ -2605,6 +2656,7 @@ addEventListener("popstate", (e) => {
   if (open) {
     $(open).hidden = true;
     if (open === "subject") currentSubject = null;
+    if (open === "person") currentPerson = null;
     if (open === "detail") current = null;
     refreshCurrentView();
     return;
@@ -2652,6 +2704,7 @@ document.querySelector("nav").addEventListener("click", (e) => {
    One line per release, newest first. Kept deliberately short: it exists to answer
    "did the thing I asked for actually ship", not to be release notes. */
 const RELEASES = [
+  ["1.23.0", "People, linked to places and notes; \u201cnew item X\u201d in a note adds it; search finds names; Things became Places and items"],
   ["1.22.0", "Rename or move a place instead of deleting it; the map says when it is offline"],
   ["1.21.0", "Drag things around the tree; + on a row adds a part inside it"],
   ["1.20.0", "Add a place by dropping a pin on a map, not only from where you stand"],
@@ -2692,6 +2745,7 @@ function renderHistory() {
    are key-value rather than a column per field, so a new kind of thing never needs
    a migration; a template's only job is remembering what to ask. */
 let templates = null, subjects = [], currentSubject = null;
+let people = [], currentPerson = null, personEditing = false;
 
 async function loadTemplates() {
   if (templates) return templates;
@@ -2852,20 +2906,46 @@ function renderFlat(node) {
   });
 }
 
+function renderPeople(node) {
+  node.replaceChildren();
+  if (!people.length) {
+    node.innerHTML = '<div class="empty">Nobody yet. Add a person, or say ' +
+      '\u201cnew person Bob Reyes\u201d in a note.</div>';
+    return;
+  }
+  const placeName = new Map(places.map((p) => [p.id, p.name]));
+  people.forEach((p) => {
+    const b = document.createElement("button");
+    b.className = "subj";
+    b.dataset.personId = p.id;
+    const sub = [p.role, p.company].filter(Boolean).join(" \u00b7 ");
+    const where = (p.place_ids || []).map((id) => placeName.get(id)).filter(Boolean).join(", ");
+    b.innerHTML =
+      '<span class="cover none"></span>' +
+      '<span class="nm">' + esc(p.name) +
+        (sub ? '<br><span style="font-weight:400;font-size:13px;color:var(--ink-2)">' + esc(sub) + "</span>" : "") +
+      "</span>" +
+      '<span class="kind">' + esc(where || p.context) + "</span>";
+    node.append(b);
+  });
+}
+
 function renderSubjectList() {
   const node = $("subjectList");
   const chips = $("thingsMode");
   if (chips) {
-    chips.hidden = !subjects.length;
+    chips.hidden = !subjects.length && !people.length;
     chips.querySelectorAll("[data-tmode]").forEach((b) =>
       b.setAttribute("aria-pressed", String(b.dataset.tmode === thingsMode)));
   }
+  $("addSubject").textContent = thingsMode === "people" ? "+ Add a person" : "+ Add an item";
+  if (thingsMode === "people") { renderPeople(node); return; }
   if (!subjects.length) {
     // Demonstrate the loop rather than describing it — what a "thing" is for only
     // makes sense once you see a note landing in its history.
     node.innerHTML =
       '<div class="demo"><h3>How this works</h3>' +
-      '<div class="step"><span class="n">1</span><span class="t"><b>Add the thing</b>' +
+      '<div class="step"><span class="n">1</span><span class="t"><b>Add the item</b>' +
         '<span>A truck, a compressor, the AC unit — anything you want a record of.</span>' +
         '<span class="card"><span class="k">equipment · work</span><br>Compressor 2</span></span></div>' +
       '<div class="step"><span class="n">2</span><span class="t"><b>Fill in what matters</b>' +
@@ -2887,10 +2967,11 @@ async function loadSubjects() {
   // Places come with it: they are the roots of the tree, and a tree drawn from a
   // stale places list files things under names that have been renamed or removed.
   try {
-    const [r] = await Promise.all([fetch("/api/subjects"), loadPlaces()]);
+    const [r, pr] = await Promise.all([fetch("/api/subjects"), fetch("/api/people"), loadPlaces()]);
     subjects = (await r.json()).subjects || [];
+    people = pr.ok ? (await pr.json()).people || [] : people;
   } catch {
-    $("subjectList").innerHTML = '<div class="empty">Offline — things need a connection.</div>';
+    $("subjectList").innerHTML = '<div class="empty">Offline — items need a connection.</div>';
     return;
   }
   renderSubjectList();
@@ -3171,6 +3252,156 @@ document.addEventListener("click", (e) => {
   if (row) openSubject(row.dataset.subjectId);
 });
 $("subjectBack").addEventListener("click", () => closeOverlay("subject"));
+
+/* ------------------------------------------------------------------ people
+   Who was involved. Their own page rather than an item with a "person" type,
+   because a person is at several places and the tree files an item in one. */
+$("personBack").addEventListener("click", () => closeOverlay("person"));
+
+document.addEventListener("click", (e) => {
+  if (Date.now() < noClickUntil) return;
+  const row = e.target.closest("[data-person-id]");
+  if (row) openPerson(row.dataset.personId);
+});
+
+/** null opens a blank one in edit mode. */
+async function openPerson(id) {
+  if ($("person").hidden) openOverlay("person");
+  if (!id) {
+    currentPerson = { id: null, name: "", role: null, company: null, phone: null, email: null,
+      notes: null, context, place_ids: herePlace ? [herePlace.id] : [], entries: [] };
+    personEditing = true;
+    renderPerson();
+    $("pName").focus();
+    return;
+  }
+  personEditing = false;
+  $("personBody").innerHTML = '<div class="empty">Loading…</div>';
+  try {
+    const r = await fetch("/api/people/" + encodeURIComponent(id));
+    if (!r.ok) throw new Error();
+    currentPerson = await r.json();
+    renderPerson();
+  } catch {
+    $("personBody").innerHTML = '<div class="empty">Could not load that.</div>';
+  }
+}
+
+function renderPerson() {
+  return personEditing ? renderPersonEdit() : renderPersonRead();
+}
+
+function renderPersonRead() {
+  const p = currentPerson;
+  const placeName = new Map(places.map((x) => [x.id, x.name]));
+  const where = (p.place_ids || []).map((id) => placeName.get(id)).filter(Boolean);
+  const row = (k, v, html) => '<div class="r"><div class="k">' + k + '</div>' +
+    '<div class="v' + (v ? "" : " none") + '">' + (v ? (html || esc(v)) : "not recorded") + "</div></div>";
+  const history = p.entries.length
+    ? p.entries.map((e) =>
+        '<button class="entry' + (e.is_open ? " open" : "") + '" data-id="' + esc(e.id) + '">' +
+        '<span class="when">' + esc(fmtFull(e.created_at)) + "</span>" +
+        '<span class="what">' + esc(e.body || "(photo)") + "</span></button>").join("")
+    : '<div class="empty">Nothing logged with them yet.</div>';
+  $("personBody").innerHTML =
+    '<div class="subjhead"><h1>' + esc(p.name) + "</h1>" +
+      '<div class="badges"><span class="badge2">person</span>' +
+      '<span class="badge2">' + esc(p.context) + "</span>" +
+      '<span class="badge2">' + p.entries.length + " logged</span></div></div>" +
+    '<div class="spec">' +
+      row("role", p.role) + row("company", p.company) +
+      row("phone", p.phone, p.phone && '<a href="tel:' + esc(p.phone) + '">' + esc(p.phone) + "</a>") +
+      row("email", p.email, p.email && '<a href="mailto:' + esc(p.email) + '">' + esc(p.email) + "</a>") +
+      row("places", where.length ? where.join(", ") : "") +
+      row("notes", p.notes) +
+    "</div>" +
+    '<div class="actions">' +
+      '<button class="btn sm" id="noteWith">+ Note</button>' +
+      '<button class="btn sm ghost" id="editPerson">Edit</button>' +
+      '<button class="btn sm danger" id="deletePerson">Delete</button></div>' +
+    "<h2>History</h2>" + history;
+  $("editPerson").addEventListener("click", () => { personEditing = true; renderPerson(); });
+  $("deletePerson").addEventListener("click", async () => {
+    if (!confirm("Remove " + p.name + "? Their notes stay; only the link goes.")) return;
+    const r = await fetch("/api/people/" + encodeURIComponent(p.id), { method: "DELETE" }).catch(() => null);
+    if (!r || !r.ok) { err("Could not remove them — is there a connection?"); return; }
+    closeOverlay("person");
+    loadSubjects();
+  });
+  $("noteWith").addEventListener("click", () => {
+    linkTo = { id: p.id, name: p.name, context: p.context, kind: "person" };
+    context = p.context;
+    try { localStorage.setItem(CTX_KEY, context); } catch {}
+    paintChips();
+    paintAgainst();
+    closeLinkBar();
+    closeOverlayTo("person", "capture");
+    $("body").focus();
+  });
+}
+
+function renderPersonEdit() {
+  const p = currentPerson;
+  const field = (id, label, v, type) =>
+    '<h2>' + label + '</h2><input id="' + id + '" type="' + (type || "text") + '" value="' + esc(v || "") + '" ' +
+    'autocomplete="off" style="width:100%;border:1px solid var(--line);border-radius:10px;background:var(--card);' +
+    'color:var(--ink);padding:12px;font:400 16px var(--font-ui);margin-bottom:4px">';
+  $("personBody").innerHTML =
+    field("pName", "Name", p.name) +
+    field("pRole", "Role", p.role) +
+    field("pCompany", "Company", p.company) +
+    field("pPhone", "Phone", p.phone, "tel") +
+    field("pEmail", "Email", p.email, "email") +
+    "<h2>Where do you see them?</h2>" +
+    '<div class="chips" id="pPlaces">' + (places.length
+      ? places.map((x) => '<button class="chip" data-pp="' + esc(x.id) + '" aria-pressed="' +
+          String((p.place_ids || []).includes(x.id)) + '">' + esc(x.name) + "</button>").join("")
+      : '<span class="empty" style="padding:0">No places yet.</span>') + "</div>" +
+    "<h2>Context</h2>" +
+    '<div class="chips" id="pCtx">' + ["work", "home"].map((c) =>
+      '<button class="chip" data-pctx="' + c + '" aria-pressed="' + String(p.context === c) + '">' +
+      c[0].toUpperCase() + c.slice(1) + "</button>").join("") + "</div>" +
+    '<h2>How I know them</h2><textarea id="pNotes" style="min-height:80px">' + esc(p.notes || "") + "</textarea>" +
+    '<div class="actions" style="margin-top:12px">' +
+      '<button class="btn sm" id="savePerson">Save</button>' +
+      '<button class="btn sm ghost" id="cancelPerson">Cancel</button></div>';
+  $("pPlaces").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-pp]");
+    if (b) b.setAttribute("aria-pressed", String(b.getAttribute("aria-pressed") !== "true"));
+  });
+  $("pCtx").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-pctx]");
+    if (!b) return;
+    $("pCtx").querySelectorAll("[data-pctx]").forEach((x) =>
+      x.setAttribute("aria-pressed", String(x === b)));
+  });
+  $("cancelPerson").addEventListener("click", () => {
+    if (!p.id) { closeOverlay("person"); return; }
+    personEditing = false; renderPerson();
+  });
+  $("savePerson").addEventListener("click", async () => {
+    const name = $("pName").value.trim();
+    if (!name) { $("pName").focus(); err("Give them a name first."); return; }
+    err("");
+    const body = {
+      name, role: $("pRole").value, company: $("pCompany").value, phone: $("pPhone").value,
+      email: $("pEmail").value, notes: $("pNotes").value,
+      context: ($("pCtx").querySelector('[aria-pressed="true"]') || {}).dataset?.pctx || p.context,
+      place_ids: [...$("pPlaces").querySelectorAll('[data-pp][aria-pressed="true"]')].map((b) => b.dataset.pp),
+    };
+    try {
+      const r = await fetch(p.id ? "/api/people/" + encodeURIComponent(p.id) : "/api/people", {
+        method: p.id ? "PATCH" : "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "failed");
+      await loadSubjects();
+      await openPerson(p.id || d.id);
+    } catch (e) { err("Could not save that: " + e.message); }
+  });
+}
+
 
 async function openSubject(id) {
   editing = false;
@@ -3736,7 +3967,7 @@ async function openAddThing(preset) {
   $("newName").focus();
 }
 
-$("addSubject").addEventListener("click", () => openAddThing(null));
+$("addSubject").addEventListener("click", () => thingsMode === "people" ? openPerson(null) : openAddThing(null));
 $("addBack").addEventListener("click", () => closeOverlay("addThing"));
 
 function paintNewPickers() {

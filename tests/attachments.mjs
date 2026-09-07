@@ -49,7 +49,9 @@ check(landed.length === 2 && landed.includes("IR-2475-manual.pdf"),
 // ---------- they render as download links on the entry ----------
 await p.click('nav button[data-view="log"]');
 await p.waitForTimeout(700);
-await p.click('#dayList .entry');
+// Its own note, not the first of the day: a seeded or leftover entry earlier
+// today would otherwise be the one opened (tests/README.md).
+await p.locator('#dayList .entry', { hasText: 'point list' }).first().click();
 await p.waitForTimeout(800);
 const links = await p.$$eval(".file", (n) => n.map((a) => [a.textContent.trim(), a.getAttribute("href"), a.hasAttribute("download")]));
 check(links.length === 2, `entry detail lists both files (${links.length})`);

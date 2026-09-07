@@ -18,6 +18,7 @@ import { fileKey, photoKey } from "./ids";
 import { VERSION } from "./version";
 import { authenticate, AuthError, type Session } from "./auth";
 import { handleMcp } from "./mcp";
+import { applySpoken } from "./spoken";
 import {
   CORS,
   authServerMetadata,
@@ -207,12 +208,21 @@ app.post("/api/entries", async (c) => {
 
   // §4: one capture can touch a site, a panel and the device on it, so this is a
   // list rather than a column on entries.
-  if (Array.isArray(e.subject_ids) && e.subject_ids.length) {
-    await c.get("db").linkEntrySubjects(
-      id,
-      (e.subject_ids as unknown[]).filter((v): v is string => typeof v === "string"),
-    );
+  const strs = (v: unknown) =>
+    Array.isArray(v) ? (v as unknown[]).filter((x): x is string => typeof x === "string") : [];
+  const db = c.get("db");
+  let subjectIds = strs(e.subject_ids);
+  let personIds = strs(e.person_ids);
+  // "New item X" / "new person X" spoken into the note. Only on first arrival: a
+  // retried POST of the same id must not mint the item twice.
+  if (created) {
+    const made = await applySpoken(db, text, context,
+      typeof e.place_id === "string" ? e.place_id : null);
+    subjectIds = [...subjectIds, ...made.subject_ids];
+    personIds = [...personIds, ...made.person_ids];
   }
+  if (subjectIds.length) await db.linkEntrySubjects(id, subjectIds);
+  if (personIds.length) await db.linkEntryPeople(id, personIds);
 
   return c.json({ id, created }, created ? 201 : 200);
 });
@@ -258,6 +268,7 @@ app.get("/api/entries/:id", async (c) => {
   return c.json({
     ...detail,
     subjects: await c.get("db").entrySubjects(c.req.param("id")),
+    people: await c.get("db").entryPeople(c.req.param("id")),
     ...shapeAttachments(detail.attachments, c.env.IMG_BASE),
     // Sent rather than recomputed on the client: the device clock is what made the
     // timestamp, and it is not necessarily the clock this was judged against.
@@ -1010,6 +1021,100 @@ app.post("/api/entries/:id/subjects", async (c) => {
 
   await db.linkEntrySubjects(id, ids);
   return c.json({ subjects: await db.entrySubjects(id) });
+});
+
+/* --------------------------------------------------------------------- people */
+
+const personPatch = (b: Record<string, unknown>) => {
+  const str = (v: unknown) => (typeof v === "string" ? v.trim() || null : undefined);
+  const out: Record<string, unknown> = {};
+  for (const k of ["role", "company", "phone", "email", "notes"]) {
+    const v = str(b[k]);
+    if (v !== undefined) out[k] = v;
+  }
+  if (typeof b.name === "string" && b.name.trim()) out.name = b.name.trim();
+  if (typeof b.context === "string") out.context = b.context;
+  if (Array.isArray(b.place_ids)) {
+    out.place_ids = (b.place_ids as unknown[]).filter((v): v is string => typeof v === "string");
+  }
+  return out;
+};
+
+app.get("/api/people", async (c) => c.json({ people: await c.get("db").listPeople() }));
+
+app.post("/api/people", async (c) => {
+  let body: Record<string, unknown>;
+  try {
+    body = (await c.req.json()) as Record<string, unknown>;
+  } catch {
+    return c.json({ error: "Body must be JSON" }, 400);
+  }
+  const p = personPatch(body);
+  if (!p.name) return c.json({ error: "name is required" }, 400);
+  if (!p.context) return c.json({ error: "context is required" }, 400);
+  const id = await c.get("db").createPerson(p as never);
+  return c.json({ id }, 201);
+});
+
+app.get("/api/people/:id", async (c) => {
+  const d = await c.get("db").personDetail(c.req.param("id"));
+  if (!d) return c.json({ error: "No such person" }, 404);
+  return c.json(d);
+});
+
+app.patch("/api/people/:id", async (c) => {
+  let body: Record<string, unknown>;
+  try {
+    body = (await c.req.json()) as Record<string, unknown>;
+  } catch {
+    return c.json({ error: "Body must be JSON" }, 400);
+  }
+  const ok = await c.get("db").updatePerson(c.req.param("id"), personPatch(body));
+  if (!ok) return c.json({ error: "No such person" }, 404);
+  return c.json(await c.get("db").personDetail(c.req.param("id")));
+});
+
+app.delete("/api/people/:id", async (c) => {
+  const ok = await c.get("db").deletePerson(c.req.param("id"));
+  if (!ok) return c.json({ error: "No such person" }, 404);
+  return c.json({ ok: true });
+});
+
+/** Link people to a note after the fact — the same shape as /subjects. */
+app.post("/api/entries/:id/people", async (c) => {
+  const id = c.req.param("id");
+  const db = c.get("db");
+  let body: Record<string, unknown>;
+  try {
+    body = (await c.req.json()) as Record<string, unknown>;
+  } catch {
+    return c.json({ error: "Body must be JSON" }, 400);
+  }
+  const ids = Array.isArray(body.person_ids)
+    ? body.person_ids.filter((v): v is string => typeof v === "string")
+    : [];
+  if (!ids.length) return c.json({ error: "person_ids is required" }, 400);
+  if (!(await db.ownsEntry(id))) return c.json({ error: "No such entry" }, 404);
+  await db.linkEntryPeople(id, ids);
+  return c.json({ people: await db.entryPeople(id) });
+});
+
+/**
+ * Find an item, person or place by name. Search used to look at notes only, which
+ * is the wrong half of the problem at a shop's worth of equipment: the question
+ * is usually "where is Compressor 2's page", not "which note said compressor".
+ */
+app.get("/api/lookup", async (c) => {
+  const q = (c.req.query("q") || "").trim().toLowerCase();
+  if (q.length < 2) return c.json({ items: [], people: [], places: [] });
+  const db = c.get("db");
+  const hit = (n: string) => n.toLowerCase().includes(q);
+  const [subjects, people, places] = await Promise.all([db.listSubjects(), db.listPeople(), db.listPlaces()]);
+  return c.json({
+    items: subjects.filter((s) => hit(s.name)).slice(0, 10),
+    people: people.filter((p) => hit(p.name) || hit(p.company || "") || hit(p.role || "")).slice(0, 10),
+    places: places.filter((p) => hit(p.name)).slice(0, 10),
+  });
 });
 
 /** What Claude is connected to, and the switch that cuts it off. */

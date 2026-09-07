@@ -14,6 +14,7 @@
  * No SQL here. Every tool goes through Db, same as the rest of the app.
  */
 
+import { applySpoken } from "./spoken";
 import { Db, type SubjectRow } from "./db";
 import { VERSION } from "./version";
 import { utcDay } from "./ids";
@@ -310,6 +311,10 @@ async function callTool(db: Db, name: string, args: Json): Promise<{ content: un
         lng: null,
         is_open: args.needs_followup === true,
       });
+      // "New item X" spoken through Claude works the same as from the phone.
+      const made = await applySpoken(db, body, context, null);
+      await db.linkEntrySubjects(id, made.subject_ids);
+      await db.linkEntryPeople(id, made.person_ids);
       // The note is written either way. Losing a capture because the thing name was
       // ambiguous would be the one unforgivable failure (§1); say so and move on.
       if (args.thing) {
