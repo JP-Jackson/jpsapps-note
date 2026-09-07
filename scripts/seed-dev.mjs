@@ -39,13 +39,13 @@ const at = (daysAgo, h, mi = 0) => { const d = new Date(now - daysAgo * day); d.
 
 // ---- places
 const P = {};
-for (const [name, lat, lng, r] of [
+for (const [name, lat, lng, r, ctx] of [
   ["Shop", 31.9973, -102.0779, 150],
   ["Office", 31.9910, -102.0650, 120],
   ["Baker Lease", 32.2101, -102.3312, 400],
   ["Smith Battery", 31.8422, -101.9017, 300],
-  ["Rental", 32.4710, -102.2201, 250],
-]) P[name] = (await api("POST", "/api/places", { name, lat, lng, radius_m: r })).id;
+  ["Rental", 32.4710, -102.2201, 250, "personal"],
+]) P[name] = (await api("POST", "/api/places", { name, lat, lng, radius_m: r, context: ctx || "work" })).id;
 
 // ---- things (subjects)
 const S = {};
