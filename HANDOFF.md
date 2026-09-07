@@ -21,6 +21,12 @@ Phases 1–6 of §11 are built and deployed. Every push to `main` deploys automa
 Migrations applied: `0001_init`, `0002_subjects`, `0003_oauth`, `0004_hierarchy`.
 Secrets: `OAUTH_SECRET`.
 
+**Live data, as of v1.21.0.** Three things exist and nest: `Yard` → `Front sprinkler`,
+plus a loose `Air conditioner`. The places `Home` and `Rental` do **not** exist yet —
+they need coordinates, and neither the MCP connector nor a sandboxed session can
+create a place. JP adds those two from the map picker, then drags the two things into
+them. Do not invent coordinates for him.
+
 ## Two rules that must not be relaxed
 
 1. **`user_id` on every table.** Only `users` (its `id` is the user id) and
@@ -126,6 +132,91 @@ Also outstanding:
   on `users`.
 - `actions/checkout@v4` and `setup-node@v4` are on a deprecated Node.
 
+## Known defects
+
+Found while planning the offline work on 7 Sep, all in the places layer, none fixed
+yet. They are first in the plan below.
+
+- **Creating a place fails silently with no signal.** Both `addPlaceHere` and the map
+  picker's `mapSave` do a bare `fetch` with no `try`/`catch`. Offline a fetch
+  *rejects* rather than returning a non-ok response, so the handler dies on an
+  unhandled rejection — you type a name, tap the button, and nothing happens and
+  nothing is said. The `if (!r.ok)` branch underneath only ever runs when a server
+  actually answered.
+- **A place cannot be re-pinned or renamed from the app.** The map only creates.
+  `renamePlace` has sat in `db.ts` behind `PATCH /api/places/:id` since 1.18 with no
+  interface wired to it. So a pin dropped slightly wrong can only be corrected by
+  deleting and recreating — which unfiles every thing rooted at that place and strips
+  `place_id` off every entry that referenced it. That is a data-loss path, not an
+  inconvenience, and it was introduced by the map in 1.20.
+- **The place delete confirm is incomplete.** It still says only "Notes keep their
+  coordinates". Since 1.19 it also unfiles everything rooted there and does not say so.
+- **The map cannot work without signal and does not admit it.** Tiles come from
+  `tile.openstreetmap.org`, so with no connection it is a blank grey square rather
+  than a message.
+
+## The plan, in order
+
+Agreed with JP on 7 Sep, after v1.21.0. Reasons are written down so this is not
+re-argued from scratch.
+
+### 1. The places layer
+
+The defects above. First not because it is the most valuable work but because the
+delete-and-recreate path destroys data today.
+
+### 2. Things offline — the real job
+
+**JP loses signal at the rental. Confirmed, not hypothetical.** §6 says offline is
+not optional, and §8d's entire justification for the thing page is standing in front
+of the machine reading what you did last time — which is exactly when there are no
+bars. Today the Things tab answers "Offline — things need a connection" and a thing's
+page answers "Could not load that", so the app fails at its own stated purpose in the
+one place that matters most.
+
+- **One bounded sync endpoint**, `GET /api/sync`: every subject, their attributes,
+  all places, and the most recent ~500 entry-to-thing links with their bodies. Not
+  per-thing fetching. **The cap is the point** — since 1 September, D1 queries on the
+  free plan fail outright past the daily row limit rather than throttling (which is
+  why the usage bars exist), so an unbounded pre-fetch is a cliff, not a slow page.
+- **Cached in IndexedDB**, beside the existing queued-entry and queued-link stores;
+  refreshed on app open when online and after a write. `loadPlaces` already caches to
+  localStorage and falls back to it, so the pattern is established — this extends it.
+- **Reads offline, writes online, with one exception.** Moving things about the tree,
+  editing attributes and attaching files are desk jobs; keeping them online-only
+  avoids conflict resolution on the tree entirely. The exception is **naming the
+  place you are standing in**, which is a field action of the same shape as capture.
+  GPS works offline — it is satellites, not signal — so "Add where I am now" must
+  queue rather than fail. The map picker stays online-only and says so.
+- **A queued place needs a device-generated id**, the way entries already do (§4:
+  "generated on the device at capture time"). Places take a server id today. And
+  **flush order matters**: a note captured at a queued place must sync *after* the
+  place it points at, or its `place_id` lands on nothing. This is the trap in this
+  piece of work — invisible in review, silent when it fails.
+- **The page must admit it is a snapshot.** `sw.js` already argues that a capture
+  tool which lies about what synced is worse than one that says "offline". Same rule
+  here: offline, a thing's page says what it is showing and when it last synced.
+- **Photos are out of scope for round one.** Covers come from `img.jpsapps.com`, a
+  different origin the service worker deliberately ignores. Text and attributes work;
+  images fall back to their placeholder.
+
+### 3. The tree is the spine
+
+JP, 7 Sep: *"the tree is likely key to organizing everything."* Two things ranked low
+before that move up once it is true:
+
+- **You cannot find a thing.** Search searches notes; the Things list has no filter.
+  At a shop's worth of equipment the tree is unusable without one.
+- **Places are administered from a chip on the capture screen**, but they have been
+  the roots of the tree since 1.19. Managing them belongs with the thing they root.
+
+### 4. Carried over
+
+The uncompressed paperclip photos, theme and font not syncing, the deprecated Actions
+runners. Then §11's remaining phases — digest, in-app chat, reference tools, export.
+Those wait until the tree and places feel finished; half-built foundations under new
+features is how this gets messy.
+
 ## Things that cost time, so they are written down
 
 - **The tests are the reason most bugs were found.** `npm run test:ui` — 227
@@ -159,6 +250,17 @@ Also outstanding:
 
 ## Spec issues found — decided, not open
 
+- **"Thing" is the right word. Decided, keep it.** Questioned on 7 Sep. That tab now
+  holds a Yard, a Front sprinkler, an air conditioner and a truck, and no more
+  specific noun covers all four: Equipment excludes the yard, Assets is the right
+  register at the wrong temperature, Inventory implies counting. It is deliberately
+  empty because the category is deliberately broad — the same argument §4 makes for
+  key-value attributes and only three templates. It is also the word JP says out loud
+  and four characters wide on a five-tab nav. The SQL still says `subjects` and the
+  MCP tools say `things`; that split is not worth a migration.
+- Names that are genuinely weaker, none urgent: **"Not in a place"** names an absence
+  and reads like an error state, and **"Open"** does not say open what (it is
+  unresolved follow-ups).
 - §4's schema omitted `user_id` on `entry_subjects` and `subject_attributes`,
   contradicting its own rule. Added.
 - §4 has no hierarchy for subjects at all — only `activities.parent_id`. Added in
