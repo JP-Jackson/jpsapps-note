@@ -58,7 +58,28 @@ const settings = async (p) => { await p.click("#gear"); await p.waitForTimeout(5
   await ctx.close();
 }
 
-// ---------------- 3. iPhone: instructions, never a button ----------------
+// ------- 3. installed as a WebAPK but viewed in a tab: say so, don't shrug -------
+{
+  const ctx = await browser.newContext({ viewport: { width: 412, height: 915 }, serviceWorkers: "block" });
+  await ctx.addInitScript(() => {
+    navigator.getInstalledRelatedApps = async () => [{ platform: "webapp", url: "/manifest.webmanifest" }];
+  });
+  const p = await ctx.newPage();
+  p.on("pageerror", (e) => { console.log("  JS ERROR:", e.message); fails++; });
+  await p.goto(B, { waitUntil: "networkidle" });
+  await p.evaluate(() => sessionStorage.setItem("note-splash", "1"));
+  await p.reload({ waitUntil: "networkidle" });
+  await p.waitForTimeout(600);
+  await settings(p);
+  await p.waitForTimeout(400);
+  const t = await p.textContent("#install");
+  check(/already installed on this device/i.test(t), "detects the WebAPK is still installed");
+  check(/Uninstall/.test(t), "and says how to uninstall it, instead of a vague browser-menu shrug");
+  check(await p.$("#doInstall") === null, "no button, because Chrome will not honour one");
+  await ctx.close();
+}
+
+// ---------------- 4. iPhone: instructions, never a button ----------------
 {
   const { ctx, p } = await open({
     userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
@@ -73,7 +94,7 @@ const settings = async (p) => { await p.click("#gear"); await p.waitForTimeout(5
   await ctx.close();
 }
 
-// ---------------- 4. already installed ----------------
+// ---------------- 5. running from the home screen ----------------
 {
   const { ctx, p } = await open({ standalone: true });
   await settings(p);

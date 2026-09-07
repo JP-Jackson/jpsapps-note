@@ -3,6 +3,12 @@
 Mirrors the list shown in Settings. One line per release — enough to answer
 "did the thing I asked for actually ship", not full release notes.
 
+## 1.12.1
+The install screen can now tell that Note is still installed as an Android app even
+when you are looking at it in a browser tab — taking the icon off the home screen
+only removes the shortcut. It says so, and how to uninstall properly, instead of
+pointing vaguely at the browser menu.
+
 ## 1.12.0
 Settings can add Note to your home screen. On Android that is the browser's own
 install dialog; on iPhone it is the three steps to do it from Safari, because Apple

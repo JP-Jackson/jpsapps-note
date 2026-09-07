@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#16222E">
-<meta name="app-version" content="1.12.0">
+<meta name="app-version" content="1.12.1">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Note">
@@ -1837,6 +1837,7 @@ document.querySelector("nav").addEventListener("click", (e) => {
    One line per release, newest first. Kept deliberately short: it exists to answer
    "did the thing I asked for actually ship", not to be release notes. */
 const RELEASES = [
+  ["1.12.1", "Install screen now says when the app is still installed but hidden"],
   ["1.12.0", "Add to home screen from Settings, with steps for iPhone"],
   ["1.11.1", "App icon rebuilt so Android stops masking an already-masked shape"],
   ["1.11.0", "Attach PDFs and other files to a note or a thing"],
@@ -2570,7 +2571,23 @@ function isApple() {
   return /iPad|iPhone|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
 }
 
-function paintInstall() {
+/**
+ * Is the WebAPK installed, even though we are looking at this in a browser tab?
+ *
+ * Chrome installs a PWA as a real Android package. Dragging the icon off the home
+ * screen removes the shortcut and usually leaves the package installed, and Chrome
+ * then refuses to fire beforeinstallprompt because as far as it is concerned the app
+ * is already there. Without asking, the only thing left to say is a vague "look in
+ * your browser's menu", which is exactly the dead end this answers.
+ */
+async function installedElsewhere() {
+  try {
+    if (!navigator.getInstalledRelatedApps) return false;
+    return (await navigator.getInstalledRelatedApps()).length > 0;
+  } catch { return false; }
+}
+
+async function paintInstall() {
   const box = $("install");
   if (!box) return;
 
@@ -2613,10 +2630,21 @@ function paintInstall() {
     return;
   }
 
+  if (await installedElsewhere()) {
+    box.innerHTML =
+      '<p class="hint"><b>Note is already installed on this device</b> — you are just ' +
+      "looking at it in a browser tab. Open it from your app drawer.</p>" +
+      '<p class="hint">Taking the icon off the home screen only removes the shortcut; ' +
+      "the app stays installed, which is why there is no button here. To install it " +
+      "fresh, uninstall it first: <b>Settings &rsaquo; Apps &rsaquo; Note &rsaquo; " +
+      "Uninstall</b>, or long-press the icon and choose <b>App info</b>.</p>";
+    return;
+  }
+
   box.innerHTML =
     '<p class="hint">Your browser can install Note from its own menu — look for ' +
-    "<b>Install app</b> or <b>Add to Home screen</b>. If it is not there, the page " +
-    "may already be installed, or the browser may not support it.</p>";
+    "<b>Install app</b> or <b>Add to Home screen</b>. If it is not there, the browser " +
+    "may not support installing web apps.</p>";
 }
 
 document.addEventListener("note:installable", paintInstall);
