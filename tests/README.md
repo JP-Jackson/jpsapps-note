@@ -21,6 +21,12 @@ ranking, capture-from-a-thing, the back stack, the tree of things, and both offl
 branches (a link folded into a still-queued entry, and one queued separately for an
 entry that has already synced).
 
+`mappick.mjs` asserts nothing about map tiles. They come from
+`tile.openstreetmap.org`, which a sandboxed runner may not reach at all, and a test
+that goes red because someone else's CDN is slow is one you learn to ignore. The
+Mercator maths, the drag and the saved coordinates are checked through the map's
+coordinate readout instead.
+
 `hierarchy.mjs` is the reason the "no empty database" rule keeps earning itself: the
 tree is drawn from every subject the account holds, so it creates its own place per
 run and asks the API which things actually live there rather than assuming the five

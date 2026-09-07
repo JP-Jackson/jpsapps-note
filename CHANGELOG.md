@@ -3,6 +3,14 @@
 Mirrors the list shown in Settings. One line per release — enough to answer
 "did the thing I asked for actually ship", not full release notes.
 
+## 1.20.0
+Drop a pin. Places can be added from a map instead of only from where the phone is
+standing — drag until the pin sits on the place, pick how close counts as being
+there, and the ring shows that distance at its real size on the ground. This is the
+answer to the two cases a location fix can never get right: a job written up after
+you have left, and next door sitting inside GPS error. OpenStreetMap tiles, no
+account and no key; the map is hand-rolled rather than pulling in a library.
+
 ## 1.19.0
 Things nest. **Home → Yard → Front sprinkler**, **Rental → Air conditioner** — places
 are the roots and things go under a place and under each other. The Things tab draws

@@ -1,6 +1,6 @@
 # Note — handoff
 
-Written 7 Sep 2026, at **v1.19.0**. `NOTE_SPEC.md` is the authority: where it states a
+Written 7 Sep 2026, at **v1.20.0**. `NOTE_SPEC.md` is the authority: where it states a
 decision and a reason, follow it rather than substituting a different approach.
 
 ## Where things stand
@@ -72,6 +72,23 @@ Secrets: `OAUTH_SECRET`.
     about the same shape.
   - The capture payoff is in: after saving, things that live where you are rank
     second, behind a thing the note actually names. Evidence beats geography.
+- **Places from a map** (v1.20.0). A pin picker, because "add where I am now" can only
+  ever answer where the phone is — and the two failures already written down here are
+  both cases where that is wrong. Notes:
+  - **Hand-rolled, not Leaflet.** A centre-pinned slippy map is Web Mercator and a
+    grid of `<img>`. Pulling in a library would have been the first runtime
+    dependency in an app that self-hosts even its fonts.
+  - **Tiles come from `tile.openstreetmap.org`** — free, no key, no account. The
+    attribution in `#mapAttr` is required by the licence, not decoration. This is the
+    only third-party fetch in the app; the service worker already ignores
+    cross-origin requests, so nothing needed to change there.
+  - **The pin never moves, the world moves under it.** Same as every ride app, and it
+    avoids dragging a marker under the fingertip covering it.
+  - **The radius ring is drawn at its real ground size**, so zooming halves it. That
+    is the point: it shows how close counts as being there.
+  - The tests assert nothing about tiles — a suite that goes red because someone
+    else's CDN is slow is a suite you learn to ignore. The Mercator maths, the drag
+    and the saved coordinates are all checked through the coordinate readout.
 
 ## What is left
 
@@ -95,8 +112,8 @@ Also outstanding:
 
 ## Things that cost time, so they are written down
 
-- **The tests are the reason most bugs were found.** `npm run test:ui` — 175
-  assertions, nine files, all honouring `NOTE_URL`. They are not in CI because they
+- **The tests are the reason most bugs were found.** `npm run test:ui` — 199
+  assertions, ten files, all honouring `NOTE_URL`. They are not in CI because they
   need a live dev server. Almost every bug this session was invisible from reading the
   code: a `history.back()` race, delegated listeners stacking on a container that
   outlives its render, an `onerror` handler quietly removing the photos a test was

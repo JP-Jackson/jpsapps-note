@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#16222E">
-<meta name="app-version" content="1.19.0">
+<meta name="app-version" content="1.20.0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Note">
@@ -330,6 +330,41 @@ addEventListener("appinstalled", function () {
   .rowx{flex:none;align-self:flex-start;background:none;border:0;color:var(--ink-2);
     font-size:19px;line-height:1;padding:0 2px 0 8px;cursor:pointer}
   #places{position:fixed;inset:0;z-index:41;background:var(--bg);overflow-y:auto;padding:0 0 40px}
+
+  /* ---------- the map ----------
+     Hand-rolled rather than Leaflet: a centre-pinned slippy map is a few dozen lines
+     of Web Mercator, and this app self-hosts even its fonts. Only the tile images come
+     from outside, and the service worker already ignores cross-origin requests. */
+  #mapPick{position:fixed;inset:0;z-index:44;background:var(--bg);overflow-y:auto;padding:0 0 40px}
+  #mapPick .bar{background:var(--navy);color:#fff;display:flex;align-items:center;gap:12px;
+    padding:12px 16px;padding-top:calc(12px + env(safe-area-inset-top));position:sticky;top:0}
+  #mapPick .bar button{background:none;border:0;color:#fff;font:600 15px var(--font-ui);
+    cursor:pointer;padding:4px 0}
+  #mapPick .body{max-width:560px;margin:0 auto;padding:16px}
+  #mapPick input{width:100%;border:1px solid var(--line);border-radius:10px;
+    background:var(--card);color:var(--ink);padding:12px;font:400 16px var(--font-ui);
+    margin-bottom:6px}
+  /* touch-action:none so a drag pans the map instead of scrolling the sheet under it. */
+  #mapView{position:relative;height:300px;border:1px solid var(--line);border-radius:12px;
+    overflow:hidden;background:var(--card);touch-action:none;user-select:none;cursor:grab}
+  #mapView.dragging{cursor:grabbing}
+  #mapTiles{position:absolute;inset:0}
+  #mapTiles img{position:absolute;width:256px;height:256px;display:block;
+    -webkit-user-drag:none;user-select:none}
+  /* The pin's tip is the anchor, so it is translated up by its full height. */
+  #mapPin{position:absolute;left:50%;top:50%;transform:translate(-50%,-100%);
+    pointer-events:none;line-height:0;filter:drop-shadow(0 2px 3px rgba(0,0,0,.45))}
+  #mapRing{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+    border:2px solid var(--blue);border-radius:50%;background:rgba(44,123,196,.13);
+    pointer-events:none;max-width:none}
+  #mapZoom{position:absolute;right:9px;top:9px;display:flex;flex-direction:column;gap:6px}
+  #mapZoom button{width:36px;height:36px;border:1px solid var(--line);border-radius:9px;
+    background:var(--card);color:var(--ink);font:600 19px/1 var(--font-ui);cursor:pointer;
+    padding:0;display:flex;align-items:center;justify-content:center}
+  #mapAttr{position:absolute;right:0;bottom:0;font:400 10px var(--font-ui);
+    background:rgba(255,255,255,.78);color:#333;padding:2px 6px;border-radius:6px 0 0 0}
+  #mapAttr a{color:#333}
+  #mapAt{font:500 12px var(--font-mono);color:var(--ink-2);padding:8px 0 2px}
   #places .bar{background:var(--navy);color:#fff;display:flex;align-items:center;gap:12px;
     padding:12px 16px;padding-top:calc(12px + env(safe-area-inset-top));position:sticky;top:0}
   #places .bar button{background:none;border:0;color:#fff;font:600 15px var(--font-ui);
@@ -944,6 +979,52 @@ addEventListener("appinstalled", function () {
   <div class="body" id="placesBody"></div>
 </div>
 
+<!-- Dropping a pin. GPS can only ever answer "where is the phone right now", and §4's
+     two ordinary failures are exactly the cases where that is the wrong answer: a job
+     written up after you have left, and next door sitting inside GPS error. A map is
+     the only thing that fixes either — you can see which building you picked. -->
+<div id="mapPick" hidden>
+  <div class="bar">
+    <button id="mapBack">&lsaquo; Cancel</button>
+    <strong style="font-size:15px">Drop a pin</strong>
+  </div>
+  <div class="body">
+    <p class="empty" style="padding-top:0">Drag until the pin sits on the place. The pin
+      stays put and the map moves under it.</p>
+    <div id="mapView">
+      <div id="mapTiles"></div>
+      <div id="mapRing"></div>
+      <div id="mapPin">
+        <svg viewBox="0 0 28 36" width="28" height="36" aria-hidden="true">
+          <path d="M14 35C14 35 26 21.5 26 13A12 12 0 0 0 2 13c0 8.5 12 22 12 22z"
+                fill="#2C7BC4" stroke="#fff" stroke-width="2.5"/>
+          <circle cx="14" cy="13" r="4.4" fill="#fff"/>
+        </svg>
+      </div>
+      <div id="mapZoom">
+        <button id="mapIn" aria-label="Zoom in">+</button>
+        <button id="mapOut" aria-label="Zoom out">&minus;</button>
+      </div>
+      <!-- Required by the ODbL, not decoration. -->
+      <div id="mapAttr">&copy; <a href="https://www.openstreetmap.org/copyright"
+        target="_blank" rel="noopener">OpenStreetMap</a></div>
+    </div>
+    <div id="mapAt"></div>
+
+    <h2>What is it called?</h2>
+    <input id="mapName" placeholder="The Rental" autocomplete="off">
+
+    <h2>How big is it?</h2>
+    <p class="empty" style="padding-top:0">How close you have to be before Note offers it.</p>
+    <div class="chips" id="mapRadius">
+      <button class="chip" data-radius="75"  aria-pressed="false">Tight</button>
+      <button class="chip" data-radius="150" aria-pressed="true">A house</button>
+      <button class="chip" data-radius="400" aria-pressed="false">A yard or lease</button>
+    </div>
+    <button class="btn" id="mapSave">Add this place</button>
+  </div>
+</div>
+
 <div id="activity" hidden>
   <div class="bar">
     <button id="actBack">&lsaquo; Back</button>
@@ -1420,7 +1501,12 @@ function renderPlaces() {
     (withDist.length ? withDist.map(row).join("") : '<p class="empty">No places yet.</p>') +
     '<div class="actions" style="margin-top:14px">' +
       '<button class="btn sm" id="addPlaceHere"' + (hereCoords ? "" : " disabled") + '>' +
-      (hereCoords ? "Add where I am now" : "Waiting for a location fix…") + "</button></div>";
+      (hereCoords ? "Add where I am now" : "Waiting for a location fix…") + "</button>" +
+      '<button class="btn sm ghost" id="addPlaceMap">Pick on a map</button></div>';
+
+  // Always available, unlike "here": picking a place you are not standing in is the
+  // whole reason this exists, so it must not wait on a location fix.
+  $("addPlaceMap").addEventListener("click", openMapPick);
 
   $("addPlaceHere").addEventListener("click", async () => {
     const name = prompt("What is this place called?");
@@ -1470,6 +1556,204 @@ $("placesBody").addEventListener("click", async (e) => {
   choosePlace(pick.dataset.pickPlace);
   closeOverlay("places");
 });
+
+
+/* ------------------------------------------------------------------- the map
+   Dropping a pin, because GPS answers the wrong question.
+
+   §4 leaves places "matched by proximity and suggested, never forced", and that is
+   still true — this only changes how one gets created. The two failures written down
+   in the handoff are both unfixable by a location fix: a job written up at the
+   kitchen table an hour later records the kitchen table, and next door is inside GPS
+   error. Seeing which building you picked is the only answer to either.
+
+   Hand-rolled instead of Leaflet. A centre-pinned slippy map is Web Mercator and a
+   grid of <img>, and pulling in a library to do that would be the first runtime
+   dependency in an app that self-hosts its own fonts. Only the tiles come from
+   outside; the service worker already passes cross-origin requests straight through.
+
+   The pin never moves. The world moves under it — the same interaction every ride
+   app uses, and it avoids dragging a marker with a fingertip that covers it. */
+const TILE = 256;
+const MAP_MIN_Z = 3, MAP_MAX_Z = 19;      // 19 is as deep as OSM's raster tiles go
+let mapC = { lat: 29.0577094, lng: -96.9786539 };
+let mapZ = 17, mapRadius = 150;
+const tileCache = new Map();
+
+const lngToX = (lng, z) => ((lng + 180) / 360) * Math.pow(2, z);
+const latToY = (lat, z) => {
+  const r = (lat * Math.PI) / 180;
+  return ((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2) * Math.pow(2, z);
+};
+const xToLng = (x, z) => (x / Math.pow(2, z)) * 360 - 180;
+const yToLat = (y, z) => {
+  const n = Math.PI - (2 * Math.PI * y) / Math.pow(2, z);
+  return (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+};
+/** Ground resolution, for drawing the radius ring at its real size. */
+const metresPerPx = (lat, z) =>
+  (156543.03392 * Math.cos((lat * Math.PI) / 180)) / Math.pow(2, z);
+
+function renderMap() {
+  const view = $("mapView");
+  // Called once from rAF after the overlay is shown: while it was hidden the element
+  // had no size, and a map laid out for a zero-width viewport draws nothing.
+  const w = view.clientWidth, h = view.clientHeight;
+  if (!w || !h) return;
+
+  const n = Math.pow(2, mapZ);
+  const originX = lngToX(mapC.lng, mapZ) * TILE - w / 2;
+  const originY = latToY(mapC.lat, mapZ) * TILE - h / 2;
+
+  const box = $("mapTiles");
+  box.style.transform = "translate(0px,0px)";
+
+  const keep = new Set();
+  for (let x = Math.floor(originX / TILE); x <= Math.floor((originX + w) / TILE); x++) {
+    for (let y = Math.floor(originY / TILE); y <= Math.floor((originY + h) / TILE); y++) {
+      if (y < 0 || y >= n) continue;                 // no tiles past the poles
+      const wx = ((x % n) + n) % n;                  // the world wraps east to west
+      const key = mapZ + "/" + wx + "/" + y;
+      const id = key + "@" + x;                      // same tile, two screen positions
+      keep.add(id);
+      let img = tileCache.get(id);
+      if (!img) {
+        img = new Image();
+        img.alt = "";
+        img.dataset.tile = id;
+        // A tile that will not load must not leave a broken-image glyph sitting over
+        // the map. Hidden rather than removed: an onerror that removes nodes is what
+        // once quietly deleted the photos a test was asserting about.
+        img.onerror = () => { img.style.visibility = "hidden"; };
+        img.src = "https://tile.openstreetmap.org/" + key + ".png";
+        tileCache.set(id, img);
+      }
+      img.style.left = x * TILE - originX + "px";
+      img.style.top = y * TILE - originY + "px";
+      if (img.parentNode !== box) box.append(img);
+    }
+  }
+  [...box.children].forEach((img) => { if (!keep.has(img.dataset.tile)) img.remove(); });
+  // Panning a long way would otherwise grow this without limit for the whole session.
+  if (tileCache.size > 240) {
+    tileCache.forEach((img, id) => { if (!keep.has(id)) tileCache.delete(id); });
+  }
+
+  const d = (mapRadius * 2) / metresPerPx(mapC.lat, mapZ);
+  const ring = $("mapRing");
+  ring.style.width = ring.style.height = d + "px";
+
+  // The readout is the receipt. Proximity is decided by these numbers, so they are
+  // worth being able to read back and compare against what the phone reported.
+  $("mapAt").textContent =
+    mapC.lat.toFixed(5) + ", " + mapC.lng.toFixed(5) + "  ·  " + mapRadius + " m  ·  z" + mapZ;
+}
+
+function paintRadiusChips() {
+  document.querySelectorAll("[data-radius]").forEach((b) =>
+    b.setAttribute("aria-pressed", String(Number(b.dataset.radius) === mapRadius)));
+}
+
+/* Drag to pan. Pointer events rather than touch/mouse pairs, and pointer capture so a
+   finger that leaves the map mid-drag still finishes it rather than sticking. */
+let mapFrom = null, mapDx = 0, mapDy = 0;
+
+function bindMap() {
+  const view = $("mapView");
+
+  view.addEventListener("pointerdown", (e) => {
+    if (e.target.closest("#mapZoom") || e.target.closest("#mapAttr")) return;
+    mapFrom = { x: e.clientX, y: e.clientY };
+    mapDx = mapDy = 0;
+    view.setPointerCapture(e.pointerId);
+    view.classList.add("dragging");
+  });
+
+  // Only the tile layer is moved during the drag; committing to lat/lng and
+  // re-tiling on every pointermove would refetch the world sixty times a second.
+  view.addEventListener("pointermove", (e) => {
+    if (!mapFrom) return;
+    mapDx = e.clientX - mapFrom.x;
+    mapDy = e.clientY - mapFrom.y;
+    $("mapTiles").style.transform = "translate(" + mapDx + "px," + mapDy + "px)";
+  });
+
+  const endDrag = () => {
+    if (!mapFrom) return;
+    mapFrom = null;
+    view.classList.remove("dragging");
+    if (mapDx || mapDy) {
+      // Dragging the map right moves the centre west, so the delta is subtracted.
+      const px = lngToX(mapC.lng, mapZ) * TILE - mapDx;
+      const py = latToY(mapC.lat, mapZ) * TILE - mapDy;
+      const lat = yToLat(py / TILE, mapZ);
+      // Mercator has no poles and the ends of the world meet, so the two axes are
+      // clamped differently: latitude stops, longitude wraps.
+      mapC = {
+        lat: Math.max(-85.05, Math.min(85.05, lat)),
+        lng: ((((xToLng(px / TILE, mapZ) + 180) % 360) + 360) % 360) - 180,
+      };
+    }
+    renderMap();
+  };
+  view.addEventListener("pointerup", endDrag);
+  view.addEventListener("pointercancel", endDrag);
+
+  const zoom = (by) => {
+    const next = Math.max(MAP_MIN_Z, Math.min(MAP_MAX_Z, mapZ + by));
+    if (next === mapZ) return;
+    mapZ = next;
+    renderMap();
+  };
+  $("mapIn").addEventListener("click", () => zoom(1));
+  $("mapOut").addEventListener("click", () => zoom(-1));
+
+  $("mapRadius").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-radius]");
+    if (!b) return;
+    mapRadius = Number(b.dataset.radius);
+    paintRadiusChips();
+    renderMap();
+  });
+
+  $("mapBack").addEventListener("click", () => closeOverlay("mapPick"));
+
+  $("mapSave").addEventListener("click", async () => {
+    const name = $("mapName").value.trim();
+    if (!name) { $("mapName").focus(); err("Give it a name first."); return; }
+    err("");
+    const r = await fetch("/api/places", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name, lat: mapC.lat, lng: mapC.lng, radius_m: mapRadius }),
+    });
+    if (!r.ok) { alert("Could not save that place."); return; }
+    const d = await r.json();
+    await loadPlaces();
+    choosePlace(d.id);
+    closeOverlay("mapPick");
+    renderPlaces();
+  });
+}
+
+bindMap();
+
+/** Open the picker, centred on the best guess available. */
+function openMapPick() {
+  openOverlay("mapPick");
+  $("mapName").value = "";
+  mapRadius = 150;
+  mapZ = 17;
+  paintRadiusChips();
+  // Where you are if the phone knows, otherwise the nearest thing to a known
+  // location this app has: a place already saved. Panning from somewhere real beats
+  // panning from the middle of the Atlantic.
+  const start = hereCoords || places[0] || null;
+  if (start) mapC = { lat: start.lat, lng: start.lng };
+  // The overlay was hidden a moment ago, so #mapView still measures zero. Lay the
+  // tiles out once the browser has actually given it a size.
+  requestAnimationFrame(renderMap);
+  $("mapName").focus();
+}
 
 /* ---- files attached to a capture ----
    Queued with the entry rather than uploaded on pick, for the same reason the photo
@@ -2102,7 +2386,7 @@ async function toggleOpen() {
    same path and the stack can never drift out of step with what is on screen. */
 // Order matters: the topmost open one is what back should close, so newer/stacked
 // sheets come first. Miss one here and back silently falls through to leaving the app.
-const OVERLAYS = ["notesImport", "addThing", "detail", "subject", "activity", "places", "settings"];
+const OVERLAYS = ["mapPick", "notesImport", "addThing", "detail", "subject", "activity", "places", "settings"];
 
 function openOverlay(id) {
   $(id).hidden = false;
@@ -2190,6 +2474,7 @@ document.querySelector("nav").addEventListener("click", (e) => {
    One line per release, newest first. Kept deliberately short: it exists to answer
    "did the thing I asked for actually ship", not to be release notes. */
 const RELEASES = [
+  ["1.20.0", "Add a place by dropping a pin on a map, not only from where you stand"],
   ["1.19.0", "Things nest: Home > Yard > Front sprinkler, drawn as a tree"],
   ["1.18.0", "Pick where a note happened; add and remove places; date on the log"],
   ["1.17.0", "Dates read Monday, 9/7/2026 1:10 PM everywhere; remove an activity"],
