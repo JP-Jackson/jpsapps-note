@@ -34,6 +34,14 @@ that goes red because someone else's CDN is slow is one you learn to ignore. The
 Mercator maths, the drag and the saved coordinates are checked through the map's
 coordinate readout instead.
 
+`placesedit.mjs` covers the four places-layer defects fixed in 1.22.0. Its centre is
+the one that destroyed data: a thing rooted at a place and a note naming it must both
+survive a rename plus a re-pin, because before 1.22 the only way to move a pin was to
+delete the place and add it again. It drives both offline branches through
+`context.setOffline`, and it answers dialogs from **one** listener with a flag rather
+than adding a second with `once` — a second listener never sees the dialog, because
+the first has already answered it.
+
 `hierarchy.mjs` is the reason the "no empty database" rule keeps earning itself: the
 tree is drawn from every subject the account holds, so it creates its own place per
 run and asks the API which things actually live there rather than assuming the five

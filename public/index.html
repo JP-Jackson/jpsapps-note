@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#16222E">
-<meta name="app-version" content="1.21.0">
+<meta name="app-version" content="1.22.0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Note">
@@ -378,8 +378,15 @@ addEventListener("appinstalled", function () {
   .plrow .pn{flex:1;min-width:0;font-size:15px;font-weight:500}
   .plrow .pn small{display:block;font-weight:400;color:var(--ink-2);
     font:400 11px/1.6 var(--font-mono);text-transform:uppercase;letter-spacing:.04em}
-  .plrow .px{flex:none;background:none;border:0;color:var(--ink-2);font-size:18px;
-    line-height:1;padding:0 2px 0 8px;cursor:pointer}
+  /* Two controls per row now, so both get a real target instead of a glyph with two
+     pixels of padding either side. §10 asks for glove-friendly, and 44px square is
+     the smallest thing that is. */
+  .plrow .pe,.plrow .px{flex:none;width:44px;min-height:44px;align-self:stretch;
+    display:flex;align-items:center;justify-content:center;padding:0;
+    background:none;border:0;color:var(--ink-2);line-height:1;cursor:pointer}
+  .plrow .px{font-size:20px}
+  .plrow .pe{border-left:1px solid var(--line);border-right:1px solid var(--line)}
+  .plrow .pe:active,.plrow .px:active{background:var(--bg)}
   .dayLabel .rel, .label .rel{color:var(--ink-2);font-weight:400}
   #activity{position:fixed;inset:0;z-index:41;background:var(--bg);overflow-y:auto;padding:0 0 40px}
   #activity .bar{background:var(--navy);color:#fff;display:flex;align-items:center;gap:12px;
@@ -1009,9 +1016,12 @@ addEventListener("appinstalled", function () {
 <div id="mapPick" hidden>
   <div class="bar">
     <button id="mapBack">&lsaquo; Cancel</button>
-    <strong style="font-size:15px">Drop a pin</strong>
+    <strong style="font-size:15px" id="mapTitle">Drop a pin</strong>
   </div>
   <div class="body">
+    <!-- The overlay needs its own. #err sits in <main>, which this covers entirely,
+         so a failure reported there is a failure reported to nobody. -->
+    <div class="err" id="mapErr"></div>
     <p class="empty" style="padding-top:0">Drag until the pin sits on the place. The pin
       stays put and the map moves under it.</p>
     <div id="mapView">
@@ -1492,9 +1502,55 @@ $("placeChip").addEventListener("click", openPlaces);
 
 function openPlaces() {
   openOverlay("places");
+  // A message from the last time this was open is a message about something that is
+  // no longer true. Start clean and let this visit produce its own.
+  placesMsg = "";
   renderPlaces();
 }
 $("placesBack").addEventListener("click", () => closeOverlay("places"));
+
+/**
+ * Write a place to the server, and say so when that does not work.
+ *
+ * Both callers used to do a bare `await fetch`. Offline a fetch *rejects* rather
+ * than answering, so the `if (!r.ok)` underneath was unreachable and the handler
+ * died on an unhandled rejection: you typed a name, tapped the button, and nothing
+ * happened and nothing was said. That is the failure sw.js already argues against —
+ * a tool that lies about what saved is worse than one that admits it is offline.
+ *
+ * Passing an id edits that place instead of creating one.
+ */
+async function savePlace(body, id) {
+  try {
+    const r = await fetch("/api/places" + (id ? "/" + encodeURIComponent(id) : ""), {
+      method: id ? "PATCH" : "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+      let why = "";
+      try { why = (await r.json()).error || ""; } catch {}
+      return { ok: false, why: why || "The server refused that (" + r.status + ")." };
+    }
+    return { ok: true, id: id || (await r.json()).id };
+  } catch {
+    return {
+      ok: false, offline: true,
+      why: "No connection, so that place was not saved. It will work again with signal.",
+    };
+  }
+}
+
+/* Shown at the top of the places list. Held in a variable rather than poked into the
+   DOM because renderPlaces rewrites the whole body — a message written straight in
+   would vanish on the next repaint, which is how a silent failure starts. */
+let placesMsg = "";
+const sayPlaces = (m) => { placesMsg = m || ""; renderPlaces(); };
+
+const PENCIL = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" ' +
+  'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ' +
+  'aria-hidden="true"><path d="M12 20h9"/>' +
+  '<path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
 
 function renderPlaces() {
   const withDist = places.map((p) => ({
@@ -1502,9 +1558,9 @@ function renderPlaces() {
     d: hereCoords ? metresBetween(hereCoords.lat, hereCoords.lng, p.lat, p.lng) : null,
   })).sort((a, b) => (a.d ?? 1e12) - (b.d ?? 1e12));
 
-  // A div wrapping two buttons, not a button inside a button: the parser closes the
+  // A div wrapping the buttons, not a button inside a button: the parser closes the
   // outer one early on nested interactive content, which silently re-parents the
-  // delete control and breaks the row it was supposed to sit in.
+  // controls and breaks the row they were supposed to sit in.
   const row = (x) => {
     const chosen = herePlace && herePlace.id === x.p.id && placeAccepted;
     const far = x.d == null ? "" : x.d < 60 ? "here" : Math.round(x.d) + " m away";
@@ -1512,11 +1568,20 @@ function renderPlaces() {
       '<button class="psel" data-pick-place="' + esc(x.p.id) + '">' +
         '<span class="pn">' + esc(x.p.name) +
         (far ? "<small>" + esc(far) + "</small>" : "") + "</span></button>" +
-      '<button class="px" data-del-place="' + esc(x.p.id) + '" title="Remove">&times;</button>' +
+      '<button class="pe" data-edit-place="' + esc(x.p.id) + '" title="Rename or move" ' +
+        'aria-label="Rename or move ' + esc(x.p.name) + '">' + PENCIL + "</button>" +
+      '<button class="px" data-del-place="' + esc(x.p.id) + '" title="Remove" ' +
+        'aria-label="Remove ' + esc(x.p.name) + '">&times;</button>' +
     "</div>";
   };
 
+  // The map is the one part of this app that depends on somebody else's server, so
+  // it is the one part that has to say when it cannot work. Offering a button that
+  // opens a grey square is the same lie as the silent save above.
+  const online = navigator.onLine;
+
   $("placesBody").innerHTML =
+    (placesMsg ? '<div class="err on">' + esc(placesMsg) + "</div>" : "") +
     '<p class="hint">Where the work happened — which is not always where you are ' +
       "standing when you write it up.</p>" +
     '<div class="plrow" aria-pressed="' + !placeAccepted + '">' +
@@ -1525,26 +1590,29 @@ function renderPlaces() {
     '<div class="actions" style="margin-top:14px">' +
       '<button class="btn sm" id="addPlaceHere"' + (hereCoords ? "" : " disabled") + '>' +
       (hereCoords ? "Add where I am now" : "Waiting for a location fix…") + "</button>" +
-      '<button class="btn sm ghost" id="addPlaceMap">Pick on a map</button></div>';
+      '<button class="btn sm ghost" id="addPlaceMap"' + (online ? "" : " disabled") + '>' +
+      (online ? "Pick on a map" : "Map needs a connection") + "</button></div>";
 
-  // Always available, unlike "here": picking a place you are not standing in is the
-  // whole reason this exists, so it must not wait on a location fix.
-  $("addPlaceMap").addEventListener("click", openMapPick);
+  // Always available when there is signal, unlike "here": picking a place you are not
+  // standing in is the whole reason this exists, so it must not wait on a location fix.
+  $("addPlaceMap").addEventListener("click", () => openMapPick());
 
   $("addPlaceHere").addEventListener("click", async () => {
     const name = prompt("What is this place called?");
     if (!name || !name.trim() || !hereCoords) return;
-    const r = await fetch("/api/places", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: name.trim(), lat: hereCoords.lat, lng: hereCoords.lng }),
-    });
-    if (!r.ok) { alert("Could not save that place."); return; }
-    const d = await r.json();
+    const res = await savePlace({ name: name.trim(), lat: hereCoords.lat, lng: hereCoords.lng });
+    if (!res.ok) { sayPlaces(res.why); return; }
     await loadPlaces();
-    choosePlace(d.id);
-    renderPlaces();
+    choosePlace(res.id);
+    sayPlaces("");
   });
 }
+
+/* The list draws differently with and without signal, and the connection can drop
+   while it is open. Repaint rather than leave a stale "Pick on a map" that fails
+   the moment it is tapped. */
+addEventListener("online", () => { if (!$("places").hidden) renderPlaces(); });
+addEventListener("offline", () => { if (!$("places").hidden) renderPlaces(); });
 
 /** Selecting a place adopts the context usually used there. */
 function choosePlace(id) {
@@ -1563,17 +1631,48 @@ function choosePlace(id) {
 }
 
 $("placesBody").addEventListener("click", async (e) => {
+  // A place can be corrected in place now. Before this the only way to move a pin
+  // dropped on the wrong building was to delete it and add it again — which unfiles
+  // every thing rooted there and strips place_id off every entry that named it.
+  // Correcting a pin should not cost the history that made it worth correcting.
+  const ed = e.target.closest("[data-edit-place]");
+  if (ed) {
+    e.stopPropagation();
+    const p = places.find((x) => x.id === ed.dataset.editPlace);
+    if (p) openMapPick(p);
+    return;
+  }
+
   const del = e.target.closest("[data-del-place]");
   if (del) {
     e.stopPropagation();
-    const p = places.find((x) => x.id === del.dataset.delPlace);
-    if (!confirm("Remove " + (p ? p.name : "this place") + "? Notes keep their coordinates.")) return;
-    await fetch("/api/places/" + encodeURIComponent(del.dataset.delPlace), { method: "DELETE" });
-    if (herePlace && herePlace.id === del.dataset.delPlace) choosePlace("");
+    const id = del.dataset.delPlace;
+    const p = places.find((x) => x.id === id);
+    // Say everything it does. Since 1.19 places are the roots of the tree, so this
+    // unfiles whatever is rooted here as well — and a confirm that names one thing
+    // must not quietly change four.
+    const n = (p && p.things) || 0;
+    const rooted = n
+      ? "\n\n" + (n === 1 ? "1 thing filed there becomes" : n + " things filed there become") +
+        " unfiled. Nothing is deleted with it."
+      : "";
+    if (!confirm("Remove " + (p ? p.name : "this place") + "?" + rooted +
+      "\n\nNotes keep their coordinates.")) return;
+    try {
+      const r = await fetch("/api/places/" + encodeURIComponent(id), { method: "DELETE" });
+      if (!r.ok) { sayPlaces("Could not remove that place (" + r.status + ")."); return; }
+    } catch {
+      // Same trap as saving: offline the fetch rejects rather than answering, and an
+      // unhandled rejection here would leave the row on screen as if it had gone.
+      sayPlaces("No connection, so nothing was removed.");
+      return;
+    }
+    if (herePlace && herePlace.id === id) choosePlace("");
     await loadPlaces();
-    renderPlaces();
+    sayPlaces("");
     return;
   }
+
   const pick = e.target.closest("[data-pick-place]");
   if (!pick) return;
   choosePlace(pick.dataset.pickPlace);
@@ -1602,6 +1701,31 @@ const MAP_MIN_Z = 3, MAP_MAX_Z = 19;      // 19 is as deep as OSM's raster tiles
 let mapC = { lat: 29.0577094, lng: -96.9786539 };
 let mapZ = 17, mapRadius = 150;
 const tileCache = new Map();
+/** The place being corrected, or null when dropping a new pin. */
+let mapEditing = null;
+
+/* The map overlay's own message line. err() writes into #err, which sits in <main> —
+   and every overlay covers <main> completely, so a failure reported there is a
+   failure reported to nobody. */
+const mapSay = (m) => {
+  const el = $("mapErr");
+  el.textContent = m || "";
+  el.classList.toggle("on", !!m);
+};
+
+/* Tiles come from tile.openstreetmap.org, the only third-party fetch in the app.
+   navigator.onLine is not enough on its own — a phone on a metal building's wifi
+   with no route out still reports online, and the honest signal is whether the
+   tiles actually arrive. Self-correcting: the first tile that loads clears it. */
+function tilesFailed() {
+  if ($("mapPick").hidden || !navigator.onLine) return;
+  if ($("mapErr").textContent) return;
+  mapSay("The map tiles are not loading. The pin and the coordinates below still " +
+    "work, so a place saved now lands where the readout says.");
+}
+function tilesArrived() {
+  if (/tiles are not loading/.test($("mapErr").textContent)) mapSay("");
+}
 
 const lngToX = (lng, z) => ((lng + 180) / 360) * Math.pow(2, z);
 const latToY = (lat, z) => {
@@ -1647,7 +1771,8 @@ function renderMap() {
         // A tile that will not load must not leave a broken-image glyph sitting over
         // the map. Hidden rather than removed: an onerror that removes nodes is what
         // once quietly deleted the photos a test was asserting about.
-        img.onerror = () => { img.style.visibility = "hidden"; };
+        img.onerror = () => { img.style.visibility = "hidden"; tilesFailed(); };
+        img.onload = tilesArrived;
         img.src = "https://tile.openstreetmap.org/" + key + ".png";
         tileCache.set(id, img);
       }
@@ -1743,34 +1868,64 @@ function bindMap() {
 
   $("mapSave").addEventListener("click", async () => {
     const name = $("mapName").value.trim();
-    if (!name) { $("mapName").focus(); err("Give it a name first."); return; }
-    err("");
-    const r = await fetch("/api/places", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name, lat: mapC.lat, lng: mapC.lng, radius_m: mapRadius }),
-    });
-    if (!r.ok) { alert("Could not save that place."); return; }
-    const d = await r.json();
+    if (!name) { $("mapName").focus(); mapSay("Give it a name first."); return; }
+    mapSay("");
+    const body = { name, lat: mapC.lat, lng: mapC.lng, radius_m: mapRadius };
+    const res = await savePlace(body, mapEditing ? mapEditing.id : null);
+    // Reported here rather than through err(): #err lives in <main>, which this
+    // overlay covers completely, so a message left there is a message to nobody.
+    if (!res.ok) { mapSay(res.why); return; }
     await loadPlaces();
-    choosePlace(d.id);
+    choosePlace(res.id);
     closeOverlay("mapPick");
-    renderPlaces();
+    sayPlaces("");
   });
 }
 
 bindMap();
 
-/** Open the picker, centred on the best guess available. */
-function openMapPick() {
+/* The map is the one screen that needs somebody else's server. Say so rather than
+   drawing a grey square and letting the pin look authoritative over nothing. */
+function mapOfflineCheck() {
+  if ($("mapPick").hidden) return;
+  if (!navigator.onLine) {
+    mapSay("No connection, so the map cannot draw. The pin and the coordinates below " +
+      "still work, and “Add where I am now” only needs GPS.");
+  } else if (/No connection/.test($("mapErr").textContent)) {
+    mapSay("");
+    renderMap();
+  }
+}
+addEventListener("online", mapOfflineCheck);
+addEventListener("offline", mapOfflineCheck);
+
+/**
+ * Open the picker, centred on the best guess available.
+ *
+ * Passing a place edits it — same screen, because moving a pin and dropping one are
+ * the same act and the second screen would only be the first one again.
+ */
+function openMapPick(place) {
+  // Offline this is a grey square with a confident-looking pin over it. Refuse in the
+  // list where the button was tapped rather than opening something that cannot work.
+  if (!navigator.onLine) {
+    sayPlaces("The map needs a connection. “Add where I am now” only needs GPS, " +
+      "so it still works out here.");
+    return;
+  }
+  mapEditing = place || null;
   openOverlay("mapPick");
-  $("mapName").value = "";
-  mapRadius = 150;
+  mapSay("");
+  $("mapTitle").textContent = mapEditing ? "Move this pin" : "Drop a pin";
+  $("mapSave").textContent = mapEditing ? "Save changes" : "Add this place";
+  $("mapName").value = mapEditing ? mapEditing.name : "";
+  mapRadius = mapEditing ? (mapEditing.radius_m || 150) : 150;
   mapZ = 17;
   paintRadiusChips();
-  // Where you are if the phone knows, otherwise the nearest thing to a known
-  // location this app has: a place already saved. Panning from somewhere real beats
-  // panning from the middle of the Atlantic.
-  const start = hereCoords || places[0] || null;
+  // Where the place already is, else where you are if the phone knows, else the
+  // nearest thing to a known location this app has: a place already saved. Panning
+  // from somewhere real beats panning from the middle of the Atlantic.
+  const start = mapEditing || hereCoords || places[0] || null;
   if (start) mapC = { lat: start.lat, lng: start.lng };
   // The overlay was hidden a moment ago, so #mapView still measures zero. Lay the
   // tiles out once the browser has actually given it a size.
@@ -2497,6 +2652,7 @@ document.querySelector("nav").addEventListener("click", (e) => {
    One line per release, newest first. Kept deliberately short: it exists to answer
    "did the thing I asked for actually ship", not to be release notes. */
 const RELEASES = [
+  ["1.22.0", "Rename or move a place instead of deleting it; the map says when it is offline"],
   ["1.21.0", "Drag things around the tree; + on a row adds a part inside it"],
   ["1.20.0", "Add a place by dropping a pin on a map, not only from where you stand"],
   ["1.19.0", "Things nest: Home > Yard > Front sprinkler, drawn as a tree"],

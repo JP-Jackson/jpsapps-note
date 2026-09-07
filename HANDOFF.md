@@ -1,6 +1,6 @@
 # Note — handoff
 
-Written 7 Sep 2026, at **v1.21.0**. `NOTE_SPEC.md` is the authority: where it states a
+Written 7 Sep 2026, at **v1.22.0**. `NOTE_SPEC.md` is the authority: where it states a
 decision and a reason, follow it rather than substituting a different approach.
 
 ## Where things stand
@@ -134,36 +134,47 @@ Also outstanding:
 
 ## Known defects
 
-Found while planning the offline work on 7 Sep, all in the places layer, none fixed
-yet. They are first in the plan below.
+The four places-layer defects found on 7 Sep are **fixed in 1.22.0** — that was
+section 1 of the plan. What shipped, and the parts worth not re-deriving:
 
-- **Creating a place fails silently with no signal.** Both `addPlaceHere` and the map
-  picker's `mapSave` do a bare `fetch` with no `try`/`catch`. Offline a fetch
-  *rejects* rather than returning a non-ok response, so the handler dies on an
-  unhandled rejection — you type a name, tap the button, and nothing happens and
-  nothing is said. The `if (!r.ok)` branch underneath only ever runs when a server
-  actually answered.
-- **A place cannot be re-pinned or renamed from the app.** The map only creates.
-  `renamePlace` has sat in `db.ts` behind `PATCH /api/places/:id` since 1.18 with no
-  interface wired to it. So a pin dropped slightly wrong can only be corrected by
-  deleting and recreating — which unfiles every thing rooted at that place and strips
-  `place_id` off every entry that referenced it. That is a data-loss path, not an
-  inconvenience, and it was introduced by the map in 1.20.
-- **The place delete confirm is incomplete.** It still says only "Notes keep their
-  coordinates". Since 1.19 it also unfiles everything rooted there and does not say so.
-- **The map cannot work without signal and does not admit it.** Tiles come from
-  `tile.openstreetmap.org`, so with no connection it is a blank grey square rather
-  than a message.
+- **Creating a place failed silently with no signal.** Both `addPlaceHere` and the
+  map picker's `mapSave` did a bare `fetch` with no `try`/`catch`; offline a fetch
+  *rejects* rather than answering, so `if (!r.ok)` was unreachable and the handler
+  died on an unhandled rejection. Both now go through one `savePlace()` helper that
+  returns `{ok, why}` and never throws. **Keep every caller on it** — this failure
+  is invisible in review and silent in use, which is exactly how it survived to 1.21.
+- **A place can be renamed and re-pinned.** The pencil on a row opens the *same* map
+  picker in edit mode (`mapEditing`), prefilled with the name and radius and centred
+  on the place. One screen, because dropping a pin and moving one are the same act.
+  `renamePlace` became `updatePlace(id, patch)` and `PATCH /api/places/:id` now takes
+  name, coordinates and radius. Two rules worth keeping: **lat and lng move together
+  or not at all** (half a move is a pin somewhere neither place has ever been), and
+  **editing deliberately does not re-run `claimEntriesForPlace`** — naming a spot
+  explains the captures already made there, but nudging the pin afterwards is a
+  correction, not a fresh claim on whatever is now nearby.
+- **The delete confirm counts what it unfiles.** `listPlaces` returns a `things`
+  count per place and the confirm names it before asking. The rule from the hierarchy
+  work holds: a confirm that names one thing must not quietly change four.
+- **The map admits when it cannot work.** `openMapPick` refuses offline and explains
+  itself in the places list, and the "Pick on a map" button re-renders on the
+  `online`/`offline` events rather than going stale. There is a second signal beyond
+  `navigator.onLine`: a **tile `onerror`** shows a banner, because a phone on a metal
+  building's wifi with no route out still reports online, and whether the tiles
+  actually arrive is the honest test. The first tile that loads clears it.
+
+`tests/placesedit.mjs` covers all four, and its centre of gravity is the data-loss
+path: a thing rooted at a place and a note naming it both survive a rename plus a
+re-pin. It also drives the offline branches through `context.setOffline`.
 
 ## The plan, in order
 
 Agreed with JP on 7 Sep, after v1.21.0. Reasons are written down so this is not
 re-argued from scratch.
 
-### 1. The places layer
+### 1. The places layer — done in 1.22.0
 
-The defects above. First not because it is the most valuable work but because the
-delete-and-recreate path destroys data today.
+The defects above. First not because it was the most valuable work but because the
+delete-and-recreate path was destroying data. See **Known defects** for what shipped.
 
 ### 2. Things offline — the real job
 
@@ -219,8 +230,8 @@ features is how this gets messy.
 
 ## Things that cost time, so they are written down
 
-- **The tests are the reason most bugs were found.** `npm run test:ui` — 227
-  assertions, eleven files, all honouring `NOTE_URL`. They are not in CI because they
+- **The tests are the reason most bugs were found.** `npm run test:ui` — 254
+  assertions, twelve files, all honouring `NOTE_URL`. They are not in CI because they
   need a live dev server. Almost every bug this session was invisible from reading the
   code: a `history.back()` race, delegated listeners stacking on a container that
   outlives its render, an `onerror` handler quietly removing the photos a test was

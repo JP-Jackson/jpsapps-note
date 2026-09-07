@@ -155,6 +155,16 @@ export interface PlaceRow {
   lng: number;
   radius_m: number;
   context: string | null;
+  /** How many things are rooted here. The delete confirm has to be able to say so. */
+  things: number;
+}
+
+/** A correction to an existing place. Every field is optional; absent means leave it. */
+export interface PlacePatch {
+  name?: string;
+  lat?: number;
+  lng?: number;
+  radius_m?: number;
 }
 
 export interface NewSubject {
@@ -913,7 +923,10 @@ export class Db {
           `SELECT p.id, p.name, p.lat, p.lng, p.radius_m,
                   (SELECT e.context FROM entries e
                     WHERE e.place_id = p.id AND e.user_id = p.user_id
-                    GROUP BY e.context ORDER BY COUNT(*) DESC LIMIT 1) AS context
+                    GROUP BY e.context ORDER BY COUNT(*) DESC LIMIT 1) AS context,
+                  (SELECT COUNT(*) FROM subjects s
+                    WHERE s.place_id = p.id AND s.user_id = p.user_id
+                      AND s.archived_at IS NULL) AS things
              FROM places p
             WHERE p.user_id = ?
             ORDER BY p.name COLLATE NOCASE`,
@@ -969,13 +982,40 @@ export class Db {
     return (res[res.length - 1]?.meta?.changes ?? 0) > 0;
   }
 
-  async renamePlace(id: string, name: string): Promise<boolean> {
+  /**
+   * Correct a place in situ — its name, its pin, or how close counts as being there.
+   *
+   * Editing rather than renaming only, because the alternative was
+   * delete-and-recreate, and `deletePlace` unfiles every thing rooted here and
+   * strips `place_id` off every entry that referenced it. Fixing a pin dropped on
+   * the wrong building should not cost the history that made the pin worth fixing.
+   *
+   * Moving a place deliberately does **not** re-run `claimEntriesForPlace`. Naming a
+   * spot explains the captures already made there; nudging the pin afterwards is a
+   * correction, not a new claim on whatever happens to be near the new coordinates.
+   * Entries keep their own lat/lng regardless, so nothing is lost either way.
+   */
+  async updatePlace(id: string, patch: PlacePatch): Promise<boolean> {
+    const sets: string[] = [];
+    const vals: unknown[] = [];
+    if (patch.name !== undefined) { sets.push("name = ?"); vals.push(patch.name.trim()); }
+    if (patch.lat !== undefined) { sets.push("lat = ?"); vals.push(patch.lat); }
+    if (patch.lng !== undefined) { sets.push("lng = ?"); vals.push(patch.lng); }
+    if (patch.radius_m !== undefined) { sets.push("radius_m = ?"); vals.push(patch.radius_m); }
+    if (!sets.length) return false;
     const res = await this.d1
-      .prepare("UPDATE places SET name = ? WHERE id = ? AND user_id = ?")
-      .bind(name.trim(), id, this.userId)
+      .prepare(`UPDATE places SET ${sets.join(", ")} WHERE id = ? AND user_id = ?`)
+      .bind(...vals, id, this.userId)
       .run();
     readMeta(this.meter, res.meta);
-    return (res.meta?.changes ?? 0) > 0;
+    // A no-op edit — saving a place without changing anything — reports zero changed
+    // rows in SQLite, which is not the same as "no such place". Ask separately rather
+    // than telling the caller their place has vanished.
+    if ((res.meta?.changes ?? 0) > 0) return true;
+    const row = await this.first<{ id: string }>(
+      this.d1.prepare("SELECT id FROM places WHERE id = ? AND user_id = ?").bind(id, this.userId),
+    );
+    return row !== null;
   }
 
   async unnamedNearby(lat: number, lng: number, metres = 150): Promise<{ lat: number; lng: number }[]> {

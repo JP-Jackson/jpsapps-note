@@ -3,6 +3,17 @@
 Mirrors the list shown in Settings. One line per release — enough to answer
 "did the thing I asked for actually ship", not full release notes.
 
+## 1.22.0
+Places can be corrected. A pin dropped on the wrong building, or a name typed in a
+hurry, is fixed with the pencil on its row — the same map, opened on the place, with
+its name and radius already filled in. Until now the only way to move a pin was to
+delete the place and add it again, which unfiled every thing rooted there and took
+the name off every note that referenced it. Removing a place now says how many things
+that unfiles before it does it. And the two screens that can fail quietly no longer
+do: saving a place with no signal says the place was not saved instead of doing
+nothing at all, and the map says it needs a connection rather than drawing a grey
+square with a confident-looking pin over it.
+
 ## 1.21.0
 Drag things around the tree. Press and hold a row, drag it onto another thing to file
 it inside, onto a place to make it a root there, or onto **Not in a place** to pull it

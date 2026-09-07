@@ -13,7 +13,7 @@
 
 import { Hono } from "hono";
 import type { Env } from "./env";
-import { BadContext, BadParent, Db, VersionConflict } from "./db";
+import { BadContext, BadParent, Db, VersionConflict, type PlacePatch } from "./db";
 import { fileKey, photoKey } from "./ids";
 import { VERSION } from "./version";
 import { authenticate, AuthError, type Session } from "./auth";
@@ -373,6 +373,14 @@ app.delete("/api/places/:id", async (c) => {
   return gone ? c.json({ deleted: true }) : c.json({ error: "No such place" }, 404);
 });
 
+/**
+ * Correct a place: its name, its pin, or its radius.
+ *
+ * All three matter, and only the name was ever reachable. Without this the way to
+ * move a pin dropped on the wrong building is to delete the place and add it again,
+ * which unfiles every thing rooted there and strips `place_id` off every entry that
+ * named it. That is data loss dressed up as an edit.
+ */
 app.patch("/api/places/:id", async (c) => {
   let body: Record<string, unknown>;
   try {
@@ -380,10 +388,32 @@ app.patch("/api/places/:id", async (c) => {
   } catch {
     return c.json({ error: "Body must be JSON" }, 400);
   }
-  const name = typeof body.name === "string" ? body.name.trim() : "";
-  if (!name) return c.json({ error: "name is required" }, 400);
-  const ok = await c.get("db").renamePlace(c.req.param("id"), name);
-  return ok ? c.json({ renamed: true }) : c.json({ error: "No such place" }, 404);
+
+  const patch: PlacePatch = {};
+  if (body.name !== undefined) {
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    if (!name) return c.json({ error: "name cannot be empty" }, 400);
+    patch.name = name;
+  }
+  // Coordinates move together or not at all. Half a move is a pin somewhere neither
+  // the old nor the new place has ever been.
+  if (body.lat !== undefined || body.lng !== undefined) {
+    const lat = Number(body.lat), lng = Number(body.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return c.json({ error: "lat and lng must be sent together" }, 400);
+    }
+    patch.lat = lat;
+    patch.lng = lng;
+  }
+  if (body.radius_m !== undefined) {
+    const r = Number(body.radius_m);
+    if (!Number.isFinite(r) || r <= 0) return c.json({ error: "radius_m must be positive" }, 400);
+    patch.radius_m = Math.round(r);
+  }
+  if (!Object.keys(patch).length) return c.json({ error: "Nothing to change" }, 400);
+
+  const ok = await c.get("db").updatePlace(c.req.param("id"), patch);
+  return ok ? c.json({ updated: true }) : c.json({ error: "No such place" }, 404);
 });
 
 app.get("/api/places/nearby", async (c) => {
