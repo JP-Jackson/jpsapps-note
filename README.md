@@ -5,12 +5,15 @@
 Built to `NOTE_SPEC.md`, which is the authority. Where the spec states a decision
 and a reason, follow it.
 
-## Status: phase 1 (foundation)
+## Status
 
-Worker, D1 schema, R2 bucket, `img.jpsapps.com`, auth. The capture screen, views,
-subjects and everything else land in phases 2+. See spec §11.
+Phases 1–6 of `NOTE_SPEC.md` §11 are built and live at
+[note.jpsapps.com](https://note.jpsapps.com). Every push to `main` deploys.
 
-## Two rules this phase exists to establish
+See `HANDOFF.md` for what is left, what bit us, and the design decisions that differ
+from the spec (and why).
+
+## Two rules that must not be relaxed
 
 **1. `user_id` is on every table from day one.** Spec §4: this is the one thing in
 the design that is genuinely painful to retrofit. The only tables without it are
@@ -83,41 +86,55 @@ Access: Apps and Policies, which a CI job has no business holding.
 
 ## Layout
 
-```
-migrations/0001_init.sql   full schema — all 11 tables, phases 1-9
-src/index.ts               routing only, no SQL
-src/db.ts                  the data module — the only file that touches D1
-src/auth.ts                Access JWT verification -> Session
-src/ids.ts                 id + R2 key generation
-src/env.ts                 binding types
-public/index.html          static shell (status page for now)
-```
+    src/
+      index.ts    routing only — no SQL anywhere in here
+      db.ts       every D1 query in the project, and the only file that may hold one
+      auth.ts     Cloudflare Access JWT verification
+      oauth.ts    OAuth 2.1 for the MCP connector (D1-backed, not KV)
+      mcp.ts      the seven MCP tools Claude sees
+      env.ts      bindings
+      ids.ts      id and R2 key generation
+    public/
+      index.html  the whole client — markup, styles and script in one file
+      sw.js       service worker: offline shell only, never the API
+    migrations/   0001 init, 0002 subjects, 0003 oauth
+    scripts/      version stamping, icon generation
+    tests/        browser tests, run by hand against a dev server
 
 ## Local development
 
-```bash
-npm install
-cp .dev.vars.example .dev.vars
-npm run db:migrate:local
-npm run dev
-```
+    npm install
+    cp .dev.vars.example .dev.vars      # DEV_EMAIL stands in for Access; OAUTH_SECRET any string
+    npm run db:migrate:local
+    npm run dev
 
-There is no Cloudflare Access in front of `wrangler dev`, so `DEV_EMAIL` in
-`.dev.vars` stands in for the verified identity. That path is gated on
-`ENVIRONMENT=development` and is unreachable in production.
+There is no Access in front of `wrangler dev`, so `DEV_EMAIL` supplies the identity.
+It is ignored unless `ENVIRONMENT=development`.
 
-Local D1 does not report `rows_read` / `rows_written` in query metadata, so the
-usage meter reads zero locally. It populates against remote D1.
+### Browser tests
 
-## Deployment checklist
+    npx wrangler dev --port 8787
+    NOTE_URL=http://127.0.0.1:8787 npm run test:ui
+
+Not in CI — they need a live server and a real browser. Run them when the capture
+path, places, activities or attachments change. They do **not** assume an empty
+database; see `tests/README.md` for why that rule exists.
+
+## Standing this up somewhere new
+
+All of this is already done for note.jpsapps.com; it is written down so it can be
+rebuilt, not as a thing to run.
 
 1. `wrangler d1 create note` → put the id in `wrangler.jsonc` (`database_id`)
-2. `wrangler r2 bucket create note-photos`
+2. `wrangler r2 bucket create note-photos` and `wrangler r2 bucket create note-files`
 3. `npm run db:migrate`
 4. Create the Access application (below), fill in `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD`
-5. `npm run deploy`
-6. Bind `note.jpsapps.com` as a custom domain (uncomment `routes` in `wrangler.jsonc`)
-7. Bind `img.jpsapps.com` to the `note-photos` bucket in the R2 dashboard
+5. Create the six **bypass** applications listed under "Two auth regimes"
+6. `wrangler secret put OAUTH_SECRET`
+7. `npm run deploy`
+8. Bind `note.jpsapps.com` as a custom domain (`routes` in `wrangler.jsonc`)
+9. Bind `img.jpsapps.com` to `note-photos` in the R2 dashboard — and **not**
+   `note-files`, which is private precisely because it has no custom domain
 
 ## Auth
 

@@ -6,3 +6,6 @@
 # ignored unless ENVIRONMENT=development, so it cannot be reached in production.
 ENVIRONMENT=development
 DEV_EMAIL=jpsappshq@gmail.com
+
+# Any string. Signs MCP client ids; only has to be stable within a dev session.
+OAUTH_SECRET=local-dev-only
