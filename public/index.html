@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#16222E">
-<meta name="app-version" content="1.12.1">
+<meta name="app-version" content="1.13.0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Note">
@@ -297,6 +297,18 @@ addEventListener("appinstalled", function () {
   #lbClose{margin-left:auto;background:none;border:0;color:var(--ink-2);
     font-size:20px;line-height:1;padding:0 4px;cursor:pointer}
   #linkChips .chip.done{background:var(--blue);color:#fff;border-color:var(--blue)}
+  #installBar{display:flex;align-items:stretch;gap:0;margin:0 0 12px;
+    background:var(--navy);border-radius:12px;overflow:hidden}
+  #installGo{flex:1;min-width:0;display:flex;align-items:center;gap:11px;
+    background:none;border:0;color:#fff;text-align:left;padding:12px 4px 12px 13px;
+    cursor:pointer;font:inherit}
+  #installGo svg{width:22px;height:22px;flex:none;color:var(--blue)}
+  .ib-t{min-width:0;display:flex;flex-direction:column;gap:2px}
+  .ib-t b{font:600 14px/1.25 var(--font-ui)}
+  .ib-t i{font-style:normal;font-size:11.5px;line-height:1.3;color:#9FB0C0}
+  #installNo{flex:none;background:none;border:0;color:#7E8F9E;font-size:22px;
+    line-height:1;padding:0 14px;cursor:pointer}
+  #installNo:active{color:#fff}
   .steps{counter-reset:st;list-style:none;margin:0 0 12px;padding:0}
   .steps li{counter-increment:st;position:relative;padding:0 0 0 30px;margin:9px 0;
     font-size:14px;line-height:1.5}
@@ -621,6 +633,15 @@ addEventListener("appinstalled", function () {
 
   <!-- ============ CAPTURE ============ -->
   <section id="view-capture">
+    <!-- Only while it is worth saying: never once installed, and gone for good once
+         dismissed. Settings keeps it either way. -->
+    <div id="installBar" hidden>
+      <button id="installGo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="3"/><path d="M12 7v7"/><path d="m9 11 3 3 3-3"/></svg>
+        <span class="ib-t"><b>Add Note to your home screen</b><i>Opens full screen and works with no signal</i></span>
+      </button>
+      <button id="installNo" aria-label="Not now">&times;</button>
+    </div>
     <!-- Reachable order, not reading order. A phone is held low and worked with the
          thumb, so what you touch most often sits nearest the bottom right and what
          you only look at sits up top (§10: glove-friendly, large targets). -->
@@ -1837,6 +1858,7 @@ document.querySelector("nav").addEventListener("click", (e) => {
    One line per release, newest first. Kept deliberately short: it exists to answer
    "did the thing I asked for actually ship", not to be release notes. */
 const RELEASES = [
+  ["1.13.0", "Install offer on the capture screen, worded for phone or desktop"],
   ["1.12.1", "Install screen now says when the app is still installed but hidden"],
   ["1.12.0", "Add to home screen from Settings, with steps for iPhone"],
   ["1.11.1", "App icon rebuilt so Android stops masking an already-masked shape"],
@@ -2526,18 +2548,20 @@ $("fontPick").addEventListener("click", (e) => {
   applyFont(b.dataset.fontChoice);
 });
 
-$("gear").addEventListener("click", async () => {
+async function openSettings() {
   openOverlay("settings");
   paintSettings();
+  paintInstall();
+  renderHistory();
+  renderConnections();
   let server = "unreachable";
   try { server = "v" + (await (await fetch("/api/health")).json()).version; } catch {}
   $("buildInfo").innerHTML =
     "<dt>page</dt><dd>v" + esc(PAGE_VERSION) + "</dd>" +
     "<dt>server</dt><dd>" + esc(server) + "</dd>";
-  renderHistory();
-  renderConnections();
-  paintInstall();
-});
+}
+
+$("gear").addEventListener("click", openSettings);
 $("settingsBack").addEventListener("click", () => closeOverlay("settings"));
 
 /* ------------------------------------------------------------------ install
@@ -2562,6 +2586,21 @@ function isInstalled() {
       matchMedia("(display-mode: fullscreen)").matches ||
       navigator.standalone === true;
   } catch { return navigator.standalone === true; }
+}
+
+/**
+ * Desktop or phone. Only the wording differs — desktop Chrome and Edge fire the
+ * same beforeinstallprompt and installing there gives a windowed app you can pin.
+ * There is no separate "pin to taskbar" API; pinning is a step the browser offers
+ * once the install has happened.
+ */
+function isDesktop() {
+  try {
+    if (navigator.userAgentData && typeof navigator.userAgentData.mobile === "boolean") {
+      return !navigator.userAgentData.mobile;
+    }
+    return !matchMedia("(pointer: coarse)").matches;
+  } catch { return false; }
 }
 
 function isApple() {
@@ -2600,9 +2639,13 @@ async function paintInstall() {
 
   if (window.__install) {
     box.innerHTML =
-      '<p class="hint">Adds Note to your home screen so it opens like an app: ' +
-      "full screen, its own icon, and it still works with no signal.</p>" +
-      '<div class="actions"><button class="btn sm" id="doInstall">Add to home screen</button></div>';
+      '<p class="hint">' + (isDesktop()
+        ? "Installs Note as an app in its own window, which you can then pin to your " +
+          "taskbar or dock. It keeps working with no connection."
+        : "Adds Note to your home screen so it opens like an app: full screen, its " +
+          "own icon, and it still works with no signal.") + "</p>" +
+      '<div class="actions"><button class="btn sm" id="doInstall">' +
+      (isDesktop() ? "Install Note" : "Add to home screen") + "</button></div>";
     $("doInstall").addEventListener("click", async () => {
       const ev = window.__install;
       if (!ev) return;
@@ -2643,12 +2686,68 @@ async function paintInstall() {
 
   box.innerHTML =
     '<p class="hint">Your browser can install Note from its own menu — look for ' +
-    "<b>Install app</b> or <b>Add to Home screen</b>. If it is not there, the browser " +
-    "may not support installing web apps.</p>";
+    "<b>Install app</b>, <b>Add to Home screen</b>, or <b>Add to Dock</b> in Safari " +
+    "on a Mac. If none of those are there, the browser may not support installing " +
+    "web apps.</p>";
 }
 
-document.addEventListener("note:installable", paintInstall);
-document.addEventListener("note:installed", paintInstall);
+/* The same offer, where it is actually discoverable.
+
+   Settings is where you go once you already know a thing exists, which is no use
+   for the one feature whose whole job is to be found. So it also sits at the top of
+   the capture screen -- but only while it is worth saying, and it can be dismissed
+   for good, because §1 makes capture the thing nothing else on this screen is
+   allowed to compete with. */
+const INSTALL_DISMISSED = "note.install.dismissed";
+
+function dismissed() {
+  try { return localStorage.getItem(INSTALL_DISMISSED) === "1"; } catch { return false; }
+}
+
+async function paintInstallBar() {
+  const bar = $("installBar");
+  if (!bar) return;
+  // Only where there is a real answer behind it: a browser that has offered us a
+  // prompt, or Safari, where the steps work. Anywhere else the bar could only lead
+  // to "your browser may not support this", which is a nag with nothing on the end
+  // of it. Settings still lists it for those cases.
+  const canHelp = Boolean(window.__install) || isApple();
+  const show = canHelp && !isInstalled() && !dismissed() && !(await installedElsewhere());
+  bar.hidden = !show;
+  if (!show) return;
+  const t = bar.querySelector(".ib-t");
+  t.innerHTML = isDesktop()
+    ? "<b>Install Note as an app</b><i>Opens in its own window you can pin</i>"
+    : "<b>Add Note to your home screen</b><i>Opens full screen and works with no signal</i>";
+}
+
+$("installNo").addEventListener("click", () => {
+  try { localStorage.setItem(INSTALL_DISMISSED, "1"); } catch {}
+  $("installBar").hidden = true;
+});
+
+$("installGo").addEventListener("click", async () => {
+  const ev = window.__install;
+  if (ev) {
+    // Android can do it here and now; a detour through Settings would be one tap
+    // of ceremony for nothing.
+    window.__install = null;
+    try { await ev.prompt(); await ev.userChoice; } catch {}
+    paintInstallBar();
+    return;
+  }
+  // Everywhere else -- iPhone especially -- the answer is instructions, and they
+  // already exist as the first section of Settings.
+  openSettings();
+});
+
+function refreshInstall() {
+  paintInstall();
+  paintInstallBar();
+}
+document.addEventListener("note:installable", refreshInstall);
+document.addEventListener("note:installed", refreshInstall);
+paintInstallBar();
 
 /* --------------------------------------------------------------- connections
    What Claude is connected with, and the switch that cuts it off. The consent

@@ -3,6 +3,12 @@
 Mirrors the list shown in Settings. One line per release — enough to answer
 "did the thing I asked for actually ship", not full release notes.
 
+## 1.13.0
+The install offer sits at the top of the capture screen, not only in Settings — one
+tap installs on Android, and on iPhone it opens the Safari steps. Dismiss it and it
+stays gone. On a desktop it reads as installing an app in a pinnable window, which
+is what installing there actually does.
+
 ## 1.12.1
 The install screen can now tell that Note is still installed as an Android app even
 when you are looking at it in a browser tab — taking the icon off the home screen
