@@ -1,6 +1,8 @@
 export interface Env {
   DB: D1Database;
   PHOTOS: R2Bucket;
+  /** Documents. A different bucket from PHOTOS on purpose — see src/ids.ts. */
+  FILES: R2Bucket;
   ASSETS: Fetcher;
 
   ENVIRONMENT: string;

@@ -8,6 +8,9 @@ Run them by hand when the capture path changes:
     npx wrangler dev --port 8791          # in one shell
     npm run test:ui                       # in another
 
+`attachments.mjs` needs its own server on **8792** (it uses the FILES binding) and
+fixtures in /tmp/fx; the other two use 8791.
+
 They drive the real app in Chromium: contexts, the post-save link bar and its
 ranking, capture-from-a-thing, the back stack, and both offline branches (a link
 folded into a still-queued entry, and one queued separately for an entry that has

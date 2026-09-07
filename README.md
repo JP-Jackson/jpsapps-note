@@ -174,6 +174,29 @@ Requires the `OAUTH_SECRET` secret:
 Without it, every OAuth route fails loudly. A fallback would quietly issue client ids
 anyone could forge.
 
+## Two buckets, and which one a file lands in
+
+`note-photos` is served publicly by `img.jpsapps.com`. `note-files` has no custom
+domain, so the only route to an object in it is through the Worker — which is to say
+through Access.
+
+The destination is chosen by the bytes, not by which button was pressed: anything
+with an `image/` MIME type goes to the public bucket, everything else to the private
+one. Photos are the high-volume case where §3's "serving from cache bypasses the
+Worker" argument actually applies. A site drawing or a config export is not, and it
+should stop being reachable when sharing is revoked — a public URL never does,
+because revocation lives in the app and the CDN was never asked who was calling.
+
+Documents come back through `GET /api/files/:id` as **downloads**, with
+`Content-Disposition: attachment`, `nosniff` and a `default-src 'none'; sandbox` CSP.
+An uploaded HTML file rendered inline from this origin would run its scripts as the
+app, with reach into the Access session and the offline queue. Downloading costs one
+click and removes the whole class of problem.
+
+Deleting an attachment deletes the R2 object too. The row is what the app can see,
+but the object is what exists — dropping only the row leaves a photo sitting at its
+public URL with nothing recording that it is there.
+
 ## Photos and `img.jpsapps.com`
 
 An R2 custom domain means the bucket is **publicly readable**. That is deliberate

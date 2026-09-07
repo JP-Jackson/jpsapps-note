@@ -27,3 +27,21 @@ export function photoKey(userId: string, at: Date, ext = "jpg"): string {
 export function utcDay(at: Date = new Date()): string {
   return at.toISOString().slice(0, 10);
 }
+
+/**
+ * R2 object key for a document.
+ *
+ * Documents live in a SEPARATE bucket from photos, and the separation is the point.
+ * img.jpsapps.com is a custom domain on the photo bucket, which makes that whole
+ * bucket world-readable — so a PDF placed there would be public however carefully
+ * the app served it. The file bucket has no custom domain, so the only route to an
+ * object is through the Worker, which means through Cloudflare Access.
+ *
+ * Keys are still unguessable. Belt and braces: an accidental custom domain on this
+ * bucket later should not turn every document public overnight.
+ */
+export function fileKey(userId: string, at: Date = new Date()): string {
+  const yyyy = at.getUTCFullYear();
+  const mm = String(at.getUTCMonth() + 1).padStart(2, "0");
+  return `f/${userId}/${yyyy}/${mm}/${crypto.randomUUID()}`;
+}

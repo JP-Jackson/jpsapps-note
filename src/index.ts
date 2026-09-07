@@ -14,7 +14,7 @@
 import { Hono } from "hono";
 import type { Env } from "./env";
 import { BadContext, Db, VersionConflict } from "./db";
-import { photoKey } from "./ids";
+import { fileKey, photoKey } from "./ids";
 import { VERSION } from "./version";
 import { authenticate, AuthError, type Session } from "./auth";
 import { handleMcp } from "./mcp";
@@ -50,6 +50,33 @@ function haversine(aLat: number, aLng: number, bLat: number, bLng: number): numb
 function secretOf(env: Env): string {
   if (!env.OAUTH_SECRET) throw new Error("OAUTH_SECRET is not set; run wrangler secret put");
   return env.OAUTH_SECRET;
+}
+
+/**
+ * Split attachments into what the client renders inline and what it links to.
+ *
+ * Photos carry an absolute CDN URL; files carry a Worker path, because that is the
+ * only route to them. Written once and shared by both detail endpoints so the two
+ * cannot drift into disagreeing about what an attachment looks like.
+ */
+function shapeAttachments(
+  rows: { id: string; kind: string; r2_key: string | null; mime?: string | null; bytes?: number | null; title?: string | null }[],
+  imgBase: string,
+) {
+  return {
+    photos: rows
+      .filter((a) => a.kind === "photo" && a.r2_key)
+      .map((a) => ({ id: a.id, url: `${imgBase}/${a.r2_key}` })),
+    files: rows
+      .filter((a) => a.kind === "file")
+      .map((a) => ({
+        id: a.id,
+        title: a.title ?? "attachment",
+        mime: a.mime ?? null,
+        bytes: a.bytes ?? null,
+        url: `/api/files/${a.id}`,
+      })),
+  };
 }
 
 const app = new Hono<{ Bindings: Env; Variables: Vars }>();
@@ -206,9 +233,7 @@ app.get("/api/entries/:id", async (c) => {
   return c.json({
     ...detail,
     subjects: await c.get("db").entrySubjects(c.req.param("id")),
-    photos: detail.attachments
-      .filter((a) => a.kind === "photo" && a.r2_key)
-      .map((a) => ({ id: a.id, url: `${c.env.IMG_BASE}/${a.r2_key}` })),
+    ...shapeAttachments(detail.attachments, c.env.IMG_BASE),
   });
 });
 
@@ -435,12 +460,7 @@ app.post("/api/subjects/import", async (c) => {
 app.get("/api/subjects/:id", async (c) => {
   const detail = await c.get("db").subjectDetail(c.req.param("id"));
   if (!detail) return c.json({ error: "No such subject" }, 404);
-  return c.json({
-    ...detail,
-    photos: detail.attachments
-      .filter((a) => a.kind === "photo" && a.r2_key)
-      .map((a) => ({ id: a.id, url: `${c.env.IMG_BASE}/${a.r2_key}` })),
-  });
+  return c.json({ ...detail, ...shapeAttachments(detail.attachments, c.env.IMG_BASE) });
 });
 
 app.patch("/api/subjects/:id", async (c) => {
@@ -525,6 +545,139 @@ app.all("/mcp", async (c) => {
   const userId = await bearerUser(c.req.raw, c.env.DB);
   if (!userId) return unauthorized(origin(c));
   return handleMcp(c.req.raw, c.env.DB, userId);
+});
+
+/* ------------------------------------------------------------------- files
+ *
+ * Two destinations, chosen by the bytes rather than by which button was pressed.
+ *
+ * Images go to the photo bucket, which img.jpsapps.com serves publicly. §3 chose
+ * that so serving bypasses the Worker and does not consume request quota, and
+ * photos are the high-volume, bandwidth-heavy case where that actually matters.
+ *
+ * Everything else goes to the file bucket, which has no custom domain and is
+ * therefore reachable only through the Worker — which is to say only through
+ * Access. A site drawing or a config export should stop being reachable when
+ * sharing is revoked, and a public URL never does: revocation lives in the app and
+ * the CDN was never asked who was calling.
+ */
+
+/** 25 MB. R2's free tier is 10 GB in total; one file should not be a slice of it. */
+const MAX_UPLOAD = 25_000_000;
+
+/**
+ * A filename off the wire, made safe to store and to echo back in a header.
+ *
+ * Arrives percent-encoded because a header cannot carry arbitrary UTF-8, and a
+ * filename is user input either way: quotes and newlines would let it break out of
+ * the Content-Disposition header it ends up in, and path separators would let it
+ * suggest a directory.
+ */
+function safeName(raw: string, fallback: string): string {
+  let decoded = raw;
+  try {
+    decoded = decodeURIComponent(raw);
+  } catch {
+    // Not valid percent-encoding; take it literally rather than losing the name.
+  }
+  const cleaned = decoded.replace(/[\r\n"\\]/g, "").replace(/[/\\]/g, "-").trim();
+  return cleaned.slice(0, 120) || fallback;
+}
+
+app.post("/api/files", async (c) => {
+  const db = c.get("db");
+  const entryId = c.req.query("entry_id") ?? "";
+  const subjectId = c.req.query("subject_id") ?? "";
+
+  if (!entryId && !subjectId) {
+    return c.json({ error: "entry_id or subject_id is required" }, 400);
+  }
+  if (entryId && !(await db.ownsEntry(entryId))) return c.json({ error: "No such entry" }, 404);
+  if (subjectId && !(await db.ownsSubject(subjectId))) {
+    return c.json({ error: "No such subject" }, 404);
+  }
+
+  const mime = (c.req.header("content-type") ?? "application/octet-stream").split(";")[0]!.trim();
+  const bytes = await c.req.arrayBuffer();
+  if (bytes.byteLength === 0) return c.json({ error: "Empty upload" }, 400);
+  if (bytes.byteLength > MAX_UPLOAD) return c.json({ error: "Too large — 25 MB maximum" }, 413);
+
+  const title = safeName(c.req.header("x-filename") ?? "", "attachment");
+  const isImage = mime.startsWith("image/");
+
+  if (isImage) {
+    const ext = mime.includes("png") ? "png" : mime.includes("webp") ? "webp" : "jpg";
+    const key = photoKey(db.userId, new Date(), ext);
+    await c.env.PHOTOS.put(key, bytes, { httpMetadata: { contentType: mime } });
+    const id = await db.addAttachment({
+      entry_id: entryId || null,
+      subject_id: subjectId || null,
+      kind: "photo",
+      r2_key: key,
+      mime,
+      bytes: bytes.byteLength,
+      title,
+    });
+    return c.json({ id, kind: "photo", title, url: `${c.env.IMG_BASE}/${key}` }, 201);
+  }
+
+  const key = fileKey(db.userId);
+  await c.env.FILES.put(key, bytes, { httpMetadata: { contentType: mime } });
+  const id = await db.addAttachment({
+    entry_id: entryId || null,
+    subject_id: subjectId || null,
+    kind: "file",
+    r2_key: key,
+    mime,
+    bytes: bytes.byteLength,
+    title,
+  });
+  // A relative URL, because this one has to come back through the Worker.
+  return c.json({ id, kind: "file", title, url: `/api/files/${id}`, bytes: bytes.byteLength }, 201);
+});
+
+/**
+ * Serve a document. Access has already run; the row lookup is scoped to the user,
+ * so a file cannot be fetched by guessing an id.
+ *
+ * Always a download, never a render. An uploaded HTML file served inline from this
+ * origin would run its scripts as the app — same origin, so with reach into the
+ * Access session and the offline queue. Downloading costs one click and removes the
+ * whole class of problem, and nosniff stops the browser reinterpreting the bytes.
+ */
+app.get("/api/files/:id", async (c) => {
+  const db = c.get("db");
+  const row = await db.attachment(c.req.param("id"));
+  if (!row || !row.r2_key) return c.json({ error: "No such file" }, 404);
+
+  const bucket = row.kind === "photo" ? c.env.PHOTOS : c.env.FILES;
+  const obj = await bucket.get(row.r2_key);
+  if (!obj) return c.json({ error: "The file is gone" }, 404);
+
+  const name = safeName(row.title ?? "", "attachment");
+  return new Response(obj.body, {
+    headers: {
+      "content-type": row.mime ?? "application/octet-stream",
+      "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(name)}`,
+      "x-content-type-options": "nosniff",
+      "content-security-policy": "default-src 'none'; sandbox",
+      "cache-control": "private, max-age=3600",
+    },
+  });
+});
+
+app.delete("/api/files/:id", async (c) => {
+  const db = c.get("db");
+  const row = await db.removeAttachment(c.req.param("id"));
+  if (!row) return c.json({ error: "No such file" }, 404);
+  if (row.r2_key) {
+    // The row is what the app can see, but the object is what exists. Deleting only
+    // the row would leave a photo sitting at its public URL with nothing recording
+    // that it is there.
+    const bucket = row.kind === "photo" ? c.env.PHOTOS : c.env.FILES;
+    await bucket.delete(row.r2_key);
+  }
+  return c.json({ deleted: true });
 });
 
 /**

@@ -57,6 +57,7 @@ export interface EntryRow {
 }
 
 export interface AttachmentRow {
+  title?: string | null;
   id: string;
   kind: string;
   r2_key: string | null;
@@ -84,11 +85,13 @@ export class VersionConflict extends Error {
 }
 
 export interface NewAttachment {
-  entry_id: string;
+  entry_id?: string | null;
+  subject_id?: string | null;
   kind: string;
   r2_key: string;
   mime: string;
   bytes: number;
+  title?: string | null;
 }
 
 export interface SubjectRow {
@@ -569,7 +572,7 @@ export class Db {
     const attachments = await this.all<AttachmentRow>(
       this.d1
         .prepare(
-          `SELECT id, kind, r2_key, mime, bytes, created_at
+          `SELECT id, kind, r2_key, mime, bytes, title, created_at
              FROM attachments
             WHERE entry_id = ? AND user_id = ?
             ORDER BY created_at ASC`,
@@ -670,12 +673,62 @@ export class Db {
       this.d1
         .prepare(
           `INSERT INTO attachments
-             (id, user_id, entry_id, kind, r2_key, mime, bytes, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+             (id, user_id, entry_id, subject_id, kind, r2_key, mime, bytes, title, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
-        .bind(id, this.userId, a.entry_id, a.kind, a.r2_key, a.mime, a.bytes, Date.now()),
+        .bind(
+          id,
+          this.userId,
+          a.entry_id ?? null,
+          a.subject_id ?? null,
+          a.kind,
+          a.r2_key,
+          a.mime,
+          a.bytes,
+          a.title ?? null,
+          Date.now(),
+        ),
     );
     return id;
+  }
+
+  /**
+   * One attachment, for serving it.
+   *
+   * Scoped to the user like everything else, which is the whole point: a document
+   * in the private bucket is reachable only through this lookup, so the ownership
+   * check is not a nicety here, it is the access control.
+   */
+  async attachment(id: string): Promise<AttachmentRow | null> {
+    return this.first<AttachmentRow>(
+      this.d1
+        .prepare(
+          `SELECT id, kind, r2_key, mime, bytes, title, created_at
+             FROM attachments WHERE id = ? AND user_id = ?`,
+        )
+        .bind(id, this.userId),
+    );
+  }
+
+  /** Detach and forget. The caller deletes the object; this drops the record. */
+  async removeAttachment(id: string): Promise<AttachmentRow | null> {
+    const row = await this.attachment(id);
+    if (!row) return null;
+    await this.run(
+      this.d1
+        .prepare("DELETE FROM attachments WHERE id = ? AND user_id = ?")
+        .bind(id, this.userId),
+    );
+    return row;
+  }
+
+  async ownsSubject(subjectId: string): Promise<boolean> {
+    const row = await this.first<{ n: number }>(
+      this.d1
+        .prepare("SELECT 1 AS n FROM subjects WHERE id = ? AND user_id = ?")
+        .bind(subjectId, this.userId),
+    );
+    return row !== null;
   }
 
   // ------------------------------------------------------------------- places
@@ -838,7 +891,7 @@ export class Db {
     const attachments = await this.all<AttachmentRow>(
       this.d1
         .prepare(
-          `SELECT id, kind, r2_key, mime, bytes, created_at
+          `SELECT id, kind, r2_key, mime, bytes, title, created_at
              FROM attachments WHERE subject_id = ? AND user_id = ?
             ORDER BY created_at DESC`,
         )

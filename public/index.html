@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#16222E">
-<meta name="app-version" content="1.10.0">
+<meta name="app-version" content="1.11.0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Note">
@@ -263,6 +263,17 @@
   #detail .body{max-width:560px;margin:0 auto;padding:16px}
   #detail img.photo{width:100%;border-radius:12px;border:1px solid var(--line);
     margin-bottom:10px;display:block}
+  .files{display:flex;flex-direction:column;gap:6px;margin:10px 0}
+  .file{display:flex;align-items:center;gap:10px;text-decoration:none;
+    background:var(--card);border:1px solid var(--line);border-radius:10px;
+    padding:10px 12px;color:var(--ink)}
+  .file .ft{flex:1;min-width:0;font-size:14px;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap}
+  .file .fm{font:400 11px/1.6 var(--font-mono);color:var(--ink-2);
+    text-transform:uppercase;letter-spacing:.04em;flex:none}
+  .file .fx{flex:none;background:none;border:0;color:var(--ink-2);
+    font-size:18px;line-height:1;padding:0 2px;cursor:pointer}
+  #pending{font:400 12px/1.6 var(--font-mono);color:var(--ink-2);margin-bottom:6px}
   #linkBar{margin-bottom:8px}
   .lb-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}
   #lbText{font:500 11px/1.6 var(--font-mono);text-transform:uppercase;
@@ -594,6 +605,7 @@
     </div>
 
     <input type="file" id="filePick" accept="image/*" capture="environment" hidden>
+    <input type="file" id="docPick" multiple hidden>
 
     <textarea id="body" placeholder="What happened? (tap the mic on your keyboard to dictate)"></textarea>
 
@@ -787,6 +799,8 @@
        decided, so it is shown as state rather than asked for again. -->
   <button id="againstChip" class="place" hidden></button>
 
+  <div id="pending" hidden></div>
+
   <!-- Offered AFTER the note is safe (§1). Ignore it and nothing is lost. -->
   <div id="linkBar" hidden>
     <div class="lb-head">
@@ -798,6 +812,9 @@
   <div class="doit">
     <button id="flagBtn" class="sq" aria-pressed="false" title="Needs follow-up">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4h13l-2 4 2 4H5"/></svg>
+    </button>
+    <button id="clipBtn" class="sq" title="Attach a file">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.4 11.05 12.25 20.2a6 6 0 0 1-8.49-8.49l9.2-9.19a4 4 0 0 1 5.65 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.83l8.49-8.48"/></svg>
     </button>
     <button id="camBtn" class="sq" title="Add photo">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
@@ -1143,6 +1160,40 @@ $("placeChip").addEventListener("click", async () => {
   }
 });
 
+/* ---- files attached to a capture ----
+   Queued with the entry rather than uploaded on pick, for the same reason the photo
+   is: the entry does not exist server-side until it flushes, and a capture made with
+   no signal must still carry everything that belongs to it (§6). */
+let pendingFiles = [];
+
+const KB = 1024;
+function sizeOf(n) {
+  if (n == null) return "";
+  return n < KB ? n + " B"
+    : n < KB * KB ? Math.round(n / KB) + " KB"
+    : (n / (KB * KB)).toFixed(1) + " MB";
+}
+
+function paintPending() {
+  const box = $("pending");
+  if (!pendingFiles.length) { box.hidden = true; box.textContent = ""; return; }
+  box.hidden = false;
+  box.textContent = pendingFiles.length === 1
+    ? "1 file attached · " + pendingFiles[0].name
+    : pendingFiles.length + " files attached";
+}
+
+$("clipBtn").addEventListener("click", () => $("docPick").click());
+
+$("docPick").addEventListener("change", (e) => {
+  for (const f of e.target.files) {
+    if (f.size > 25000000) { err(f.name + " is over 25 MB."); continue; }
+    pendingFiles.push(f);
+  }
+  e.target.value = "";
+  paintPending();
+});
+
 /* ---- linking a note to a thing ----
    Linking used to be chips you cleared BEFORE saving, which is sorting into a
    taxonomy before the thought is finished — friction at the one moment §1 says must
@@ -1275,6 +1326,7 @@ $("save").addEventListener("click", async () => {
     subject_ids: linkTo ? [linkTo.id] : [],
     place_id: placeAccepted && herePlace ? herePlace.id : null,
     photo: photoBlob || null,
+    files: pendingFiles.slice(),
   };
 
   await put(rec);                     // durable BEFORE any network attempt
@@ -1283,6 +1335,8 @@ $("save").addEventListener("click", async () => {
   $("flagBtn").setAttribute("aria-pressed", "false");
   linkTo = null;
   paintAgainst();
+  pendingFiles = [];
+  paintPending();
   clearPhoto();
   $("save").disabled = false;
   renderRecent();
@@ -1321,7 +1375,18 @@ async function flush() {
         });
         if (!up.ok) throw new Error("photo " + up.status);
       }
-      await del(rec.id);              // only once BOTH parts are safely up
+      for (const f of rec.files || []) {
+        const up = await fetch("/api/files?entry_id=" + encodeURIComponent(rec.id), {
+          method: "POST",
+          headers: {
+            "content-type": f.type || "application/octet-stream",
+            "x-filename": encodeURIComponent(f.name || "attachment"),
+          },
+          body: f,
+        });
+        if (!up.ok) throw new Error("file " + up.status);
+      }
+      await del(rec.id);              // only once EVERY part is safely up
     }
 
     // Links go after entries, so one queued alongside its own entry lands second and
@@ -1526,6 +1591,23 @@ async function openDetail(id) {
   }
 }
 
+/**
+ * Attached documents.
+ *
+ * A link, never an inline render. These come back through the Worker as downloads
+ * (an uploaded HTML file rendered in this origin would run as the app), so there is
+ * nothing to preview here even if we wanted one.
+ */
+function fileList(files, deletable) {
+  if (!files || !files.length) return "";
+  return '<div class="files">' + files.map((f) =>
+    '<a class="file" href="' + esc(f.url) + '" download>' +
+      '<span class="ft">' + esc(f.title || "attachment") + "</span>" +
+      '<span class="fm">' + esc(sizeOf(f.bytes)) + "</span>" +
+      (deletable ? '<button class="fx" data-delfile="' + esc(f.id) + '" title="Remove">&times;</button>' : "") +
+    "</a>").join("") + "</div>";
+}
+
 function threadLink(label, e) {
   return '<p class="thread">' + label + '</p>' +
     '<button class="entry" data-id="' + esc(e.id) + '">' +
@@ -1567,7 +1649,7 @@ function renderDetail(rejectedText) {
     : "";
 
   $("detailBody").innerHTML =
-    conflict + photos +
+    conflict + photos + fileList(e.files, false) +
     '<textarea id="editBody">' + esc(e.body || "") + "</textarea>" + raw +
     '<div class="actions">' +
       '<button class="btn sm" id="saveEdit">Save changes</button>' +
@@ -1725,6 +1807,7 @@ document.querySelector("nav").addEventListener("click", (e) => {
    One line per release, newest first. Kept deliberately short: it exists to answer
    "did the thing I asked for actually ship", not to be release notes. */
 const RELEASES = [
+  ["1.11.0", "Attach PDFs and other files to a note or a thing"],
   ["1.10.0", "Work/Home only; link a note after saving; + Note from a thing"],
   ["1.9.1", "Things can no longer be saved into a context that does not exist"],
   ["1.9.0", "Connect Note to Claude — it can search the log and add notes for you"],
@@ -1833,6 +1916,33 @@ function attrRow(key, value) {
     '<button class="rm" title="Remove">&times;</button></div>';
 }
 
+/* One hidden input reused by every "Attach" button on a thing's page. */
+const subjectPick = Object.assign(document.createElement("input"), { type: "file", multiple: true });
+subjectPick.style.display = "none";
+document.body.append(subjectPick);
+
+subjectPick.addEventListener("change", async (e) => {
+  const id = subjectPick.dataset.subjectId;
+  const chosen = [...e.target.files];
+  subjectPick.value = "";
+  if (!id || !chosen.length) return;
+  if (!navigator.onLine) { alert("Attaching a file needs a connection."); return; }
+
+  for (const f of chosen) {
+    if (f.size > 25000000) { alert(f.name + " is over 25 MB."); continue; }
+    const r = await fetch("/api/files?subject_id=" + encodeURIComponent(id), {
+      method: "POST",
+      headers: {
+        "content-type": f.type || "application/octet-stream",
+        "x-filename": encodeURIComponent(f.name || "attachment"),
+      },
+      body: f,
+    });
+    if (!r.ok) { alert("Could not attach " + f.name); return; }
+  }
+  openSubject(id);
+});
+
 let editing = false;
 
 function renderSubject() {
@@ -1873,12 +1983,33 @@ function renderSubjectRead() {
       (s.archived_at ? '<span class="badge2">archived</span>' : "") +
       '<span class="badge2">' + s.entries.length + " logged</span></div></div>" +
     '<div class="spec">' + rows + "</div>" +
+    (s.files && s.files.length ? "<h2>Files</h2>" + fileList(s.files, true) : "") +
     '<div class="actions">' +
       '<button class="btn sm" id="noteAgainst">+ Note</button>' +
+      '<button class="btn sm ghost" id="attachHere">Attach</button>' +
       '<button class="btn sm ghost" id="editSubject">Edit</button></div>' +
     "<h2>History</h2>" + history;
 
   $("editSubject").addEventListener("click", () => { editing = true; renderSubject(); });
+
+  /* Attaching to a thing uploads straight away rather than queueing.
+     The offline guarantee in §6 is about capture -- a note must never be lost
+     because there is no signal. Filing a manual against a compressor is a desk
+     job, not a field one, so it says plainly that it needs a connection instead
+     of pretending to have worked. */
+  $("attachHere").addEventListener("click", () => {
+    subjectPick.dataset.subjectId = s.id;
+    subjectPick.click();
+  });
+
+  $("subjectBody").addEventListener("click", async (e2) => {
+    const x = e2.target.closest("[data-delfile]");
+    if (!x) return;
+    e2.preventDefault();
+    if (!confirm("Remove this file? It is deleted from storage too.")) return;
+    await fetch("/api/files/" + encodeURIComponent(x.dataset.delfile), { method: "DELETE" });
+    openSubject(s.id);
+  });
 
   // The main path for equipment: you are standing at the machine, you opened its
   // history to see what you did last time, you fixed it, you log it. Context and

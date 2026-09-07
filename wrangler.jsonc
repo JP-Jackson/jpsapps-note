@@ -20,7 +20,14 @@
     }
   ],
 
-  "r2_buckets": [{ "binding": "PHOTOS", "bucket_name": "note-photos" }],
+  // Two buckets, deliberately. note-photos is served publicly by img.jpsapps.com,
+  // so anything in it is world-readable to whoever holds the URL (§3 chose that:
+  // serving from cache bypasses the Worker). note-files has NO custom domain, so
+  // documents in it are reachable only through the Worker, behind Access.
+  "r2_buckets": [
+    { "binding": "PHOTOS", "bucket_name": "note-photos" },
+    { "binding": "FILES", "bucket_name": "note-files" }
+  ],
 
   "vars": {
     "ENVIRONMENT": "production",

@@ -3,6 +3,13 @@
 Mirrors the list shown in Settings. One line per release — enough to answer
 "did the thing I asked for actually ship", not full release notes.
 
+## 1.11.0
+Attach files — PDFs, exports, HTML, anything — to a capture or to a thing. Documents
+go to a private bucket and come back through the Worker behind Access, so revoking
+access actually revokes them; photos keep using the public CDN, where the bandwidth
+argument applies. Documents always download and never render. Removing a file deletes
+the stored object too, not just the record.
+
 ## 1.10.0
 Contexts are Work and Home. Vehicles was never a sharing boundary — a work truck is
 Work and her car is Home — so filtering to vehicles is answered by the thing's type
