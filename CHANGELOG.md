@@ -3,6 +3,15 @@
 Mirrors the list shown in Settings. One line per release — enough to answer
 "did the thing I asked for actually ship", not full release notes.
 
+## 1.21.0
+Drag things around the tree. Press and hold a row, drag it onto another thing to file
+it inside, onto a place to make it a root there, or onto **Not in a place** to pull it
+back out. Its own branch never lights up — nothing can be filed inside itself. Every
+place now gets a heading whether or not anything is in it yet, so an empty place is
+somewhere you can drop things. And a **+** on any row or heading opens Add-a-thing
+with that answer already filled in, so a part is added where it belongs rather than
+loose and then hunted down.
+
 ## 1.20.0
 Drop a pin. Places can be added from a map instead of only from where the phone is
 standing — drag until the pin sits on the place, pick how close counts as being

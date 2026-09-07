@@ -21,6 +21,13 @@ ranking, capture-from-a-thing, the back stack, the tree of things, and both offl
 branches (a link folded into a still-queued entry, and one queued separately for an
 entry that has already synced).
 
+`treedrag.mjs` drives both input styles, because they take different branches: a
+mouse drags on movement, a finger has to press and hold first. The touch half goes
+through CDP `Input.dispatchTouchEvent` so pointer capture and `pointerType` are the
+browser's own. It also centres both ends of every drag and asserts they clear the
+sticky header and the fixed nav — an element under either is not hidden, it is
+covered, and every click silently lands on the nav.
+
 `mappick.mjs` asserts nothing about map tiles. They come from
 `tile.openstreetmap.org`, which a sandboxed runner may not reach at all, and a test
 that goes red because someone else's CDN is slow is one you learn to ignore. The

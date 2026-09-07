@@ -1,6 +1,6 @@
 # Note — handoff
 
-Written 7 Sep 2026, at **v1.20.0**. `NOTE_SPEC.md` is the authority: where it states a
+Written 7 Sep 2026, at **v1.21.0**. `NOTE_SPEC.md` is the authority: where it states a
 decision and a reason, follow it rather than substituting a different approach.
 
 ## Where things stand
@@ -72,6 +72,22 @@ Secrets: `OAUTH_SECRET`.
     about the same shape.
   - The capture payoff is in: after saving, things that live where you are rank
     second, behind a thing the note actually names. Evidence beats geography.
+- **Dragging the tree** (v1.21.0). Press-and-hold a row and drop it on a thing, a
+  place heading, or "Not in a place". A `+` on every row and heading opens the Add
+  screen already filed. Two things here were invisible from the code and only showed
+  up in the browser:
+  - **`touch-action` is read once, when the finger lands.** Setting `touch-action:
+    none` when the drag begins does nothing to the gesture in flight, so Chromium
+    decided the first movement after the hold was a scroll, took the gesture over and
+    fired `pointercancel` — dropping the thing before it moved. Fixed by a
+    **non-passive** `touchmove` listener that `preventDefault()`s while dragging. Do
+    not "tidy" that into a passive listener; a passive one cannot preventDefault and
+    the whole feature dies silently on phones.
+  - **Mouse and touch want opposite things from press-and-move.** A mouse drags on
+    movement; a finger must hold first, because press-and-move is how you scroll.
+    Split on `e.pointerType`.
+  - Every place is a heading now even when empty — an empty place that is not drawn
+    is a place nothing can be dragged into.
 - **Places from a map** (v1.20.0). A pin picker, because "add where I am now" can only
   ever answer where the phone is — and the two failures already written down here are
   both cases where that is wrong. Notes:
@@ -112,12 +128,22 @@ Also outstanding:
 
 ## Things that cost time, so they are written down
 
-- **The tests are the reason most bugs were found.** `npm run test:ui` — 199
-  assertions, ten files, all honouring `NOTE_URL`. They are not in CI because they
+- **The tests are the reason most bugs were found.** `npm run test:ui` — 227
+  assertions, eleven files, all honouring `NOTE_URL`. They are not in CI because they
   need a live dev server. Almost every bug this session was invisible from reading the
   code: a `history.back()` race, delegated listeners stacking on a container that
   outlives its render, an `onerror` handler quietly removing the photos a test was
   asserting about.
+- **A fixed nav over a perfectly good element.** `nav` is fixed across the bottom and
+  the header is sticky at the top, so a row underneath either is not hidden — it is
+  covered. It reports a normal bounding box and every click lands on the nav instead.
+  Leftover rows from earlier runs pushed a passing drag test under the nav and turned
+  it red with nothing wrong in the app. `tests/treedrag.mjs` centres both ends of
+  every drag and asserts they clear both bars.
+- **Dragging needs two points on one screen**, which "do not assume an empty
+  database" does not cover on its own. `treedrag.mjs` names its places with a `zz`
+  prefix so they sort last, directly above "Not in a place", keeping every drag
+  local however much junk an earlier run left behind. It also deletes what it made.
 - **The tests must not assume an empty database.** Anything counted or matched by text
   is tagged unique to the run and subjects are addressed by id. Several hours went into
   chasing failures that were leftover rows making a correct app look broken.

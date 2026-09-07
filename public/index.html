@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#16222E">
-<meta name="app-version" content="1.20.0">
+<meta name="app-version" content="1.21.0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Note">
@@ -645,6 +645,29 @@ addEventListener("appinstalled", function () {
   .crumbs button{background:none;border:0;padding:0;font:inherit;color:var(--blue);
     cursor:pointer;text-decoration:underline}
   .tkids{margin-left:13px;padding-left:11px;border-left:1px solid var(--line)}
+  /* The heading is a drop target, so it needs a hit area rather than being bare text. */
+  .tgroup{display:flex;align-items:center;gap:8px;padding:4px 2px;border-radius:8px}
+  .tgroup .gn{flex:1;min-width:0}
+  .tnone{font:400 12px var(--font-ui);color:var(--ink-2);opacity:.75;
+    padding:2px 2px 8px;font-style:italic}
+  .tadd{flex:none;width:26px;height:26px;border:1px solid var(--line);border-radius:7px;
+    background:var(--bg);color:var(--ink-2);cursor:pointer;font:600 15px/1 var(--font-ui);
+    display:flex;align-items:center;justify-content:center;padding:0}
+  .trow .tadd{background:var(--card)}
+
+  /* ---------- dragging a branch about ---------- */
+  /* The row stays put and greyed while a copy of it follows the finger, so you can
+     still see where it came from and drop it back. */
+  .trow.lifted{opacity:.35}
+  .tghost{position:fixed;z-index:60;pointer-events:none;transform:translate(-50%,-55%);
+    box-shadow:0 10px 26px rgba(0,0,0,.4);opacity:.96;margin:0}
+  .trow.drop-into{border-color:var(--blue);background:rgba(44,123,196,.14);
+    box-shadow:inset 0 0 0 1px var(--blue)}
+  .tgroup.drop-into{background:rgba(44,123,196,.16);box-shadow:inset 0 0 0 1px var(--blue)}
+  /* touch-action so a held finger drags the branch instead of scrolling the page,
+     and only while a drag is actually running — otherwise the list cannot scroll. */
+  body.dragging-tree{user-select:none}
+  body.dragging-tree #subjectList{touch-action:none}
   .tcount{font:500 10px/1 var(--font-mono);color:var(--ink-2);white-space:nowrap}
   /* Attribute rows are key/value pairs, not a fixed schema (§4). */
   .attr{display:grid;grid-template-columns:1fr 1.4fr auto;gap:7px;margin-bottom:7px}
@@ -2474,6 +2497,7 @@ document.querySelector("nav").addEventListener("click", (e) => {
    One line per release, newest first. Kept deliberately short: it exists to answer
    "did the thing I asked for actually ship", not to be release notes. */
 const RELEASES = [
+  ["1.21.0", "Drag things around the tree; + on a row adds a part inside it"],
   ["1.20.0", "Add a place by dropping a pin on a map, not only from where you stand"],
   ["1.19.0", "Things nest: Home > Yard > Front sprinkler, drawn as a tree"],
   ["1.18.0", "Pick where a note happened; add and remove places; date on the log"],
@@ -2613,7 +2637,11 @@ function treeBranch(rows, kids, depth) {
       coverHtml(s, "cover") +
       '<span class="nm">' + esc(s.name) + "</span>" +
       (mine.length && shut ? '<span class="tcount">' + mine.length + "</span>" : "") +
-      '<span class="kind">' + esc(s.type) + " · " + esc(s.context) + "</span>";
+      '<span class="kind">' + esc(s.type) + " · " + esc(s.context) + "</span>" +
+      // Adding a part while looking at the thing it belongs to, rather than adding it
+      // loose and then going to find it again.
+      '<button class="tadd" data-add-inside="s:' + esc(s.id) + '" aria-label="Add something inside ' +
+        esc(s.name) + '">+</button>';
     box.append(row);
     if (mine.length && !shut && depth < 12) box.append(treeBranch(mine, kids, depth + 1));
   });
@@ -2623,22 +2651,34 @@ function treeBranch(rows, kids, depth) {
 function renderTree(node) {
   const { kids, roots } = treeIndex();
   const groups = [];
-  places.forEach((p) => {
-    const rows = roots.get(p.id) || [];
-    if (rows.length) groups.push([p.name, rows]);
-  });
+  // Every place gets a heading whether or not anything is filed under it yet. An
+  // empty place that is not on screen is a place you cannot drag anything into, and
+  // the empty heading is also the thing that tells you the place exists at all.
+  places.forEach((p) => groups.push([p.name, p.id, roots.get(p.id) || []]));
   const loose = roots.get("") || [];
   // Last, not first: the things that have been filed are the point of the screen,
-  // and the ones that have not are the pile you work through.
-  if (loose.length) groups.push([places.length ? "Not in a place" : "Everything", loose]);
+  // and the ones that have not are the pile you work through. Always present when
+  // there are places, because it is the only way to drag something back out of one.
+  if (loose.length || places.length) {
+    groups.push([places.length ? "Not in a place" : "Everything", "", loose]);
+  }
 
   node.replaceChildren();
-  groups.forEach(([label, rows]) => {
+  groups.forEach(([label, placeId, rows]) => {
     const h = document.createElement("div");
     h.className = "tgroup";
-    h.textContent = label;
+    h.dataset.placeId = placeId;
+    h.innerHTML = '<span class="gn">' + esc(label) + "</span>" +
+      '<button class="tadd" data-add-inside="' + (placeId ? "p:" + esc(placeId) : "") +
+        '" aria-label="Add something at ' + esc(label) + '">+</button>';
     node.append(h);
-    node.append(treeBranch(rows, kids, 0));
+    if (rows.length) node.append(treeBranch(rows, kids, 0));
+    else {
+      const e = document.createElement("div");
+      e.className = "tnone";
+      e.textContent = "nothing here yet";
+      node.append(e);
+    }
   });
 }
 
@@ -2732,6 +2772,193 @@ $("subjectList").addEventListener("keydown", (e) => {
   openSubject(row.dataset.subjectId);
 });
 
+
+/* ------------------------------------------------- rearranging by dragging
+   The edit screen can move one thing at a time, which is fine for a correction and
+   tedious for filing twenty things you just imported. Dragging is the bulk tool.
+
+   Hand-rolled on pointer events, because the HTML5 drag-and-drop API does not fire
+   on touch at all — `draggable=true` is a desktop-only feature, and this is a phone
+   app first. Pointer events cover mouse, touch and pen in one path.
+
+   The two input styles want opposite things from the same gesture, so they are
+   split: a mouse starts dragging as soon as it moves past the slop, because a mouse
+   has no other use for a press-and-move. A finger must press and HOLD first, because
+   press-and-move is how you scroll, and stealing that would make the list unusable. */
+const DRAG_HOLD = 350, DRAG_SLOP = 8, EDGE = 90;
+
+let dragging = null;      // { id, row, ghost, banned:Set }
+let dropOn = null;        // the highlighted target
+let pressRow = null, pressAt = null, pressId = null, holdTimer = null;
+let lastY = 0, edgeRaf = 0;
+// A drag ends in a click on whatever was under the finger. Without this, dropping a
+// thing onto another thing also opens it.
+let noClickUntil = 0;
+
+/** A thing cannot be filed inside itself or anything already inside it. */
+function branchOf(id) {
+  const { kids } = treeIndex();
+  const out = new Set([id]);
+  const walk = (n, d) => {
+    if (d > 12) return;
+    (kids.get(n) || []).forEach((k) => { out.add(k.id); walk(k.id, d + 1); });
+  };
+  walk(id, 0);
+  return out;
+}
+
+function beginDrag(row, x, y) {
+  const id = row.dataset.subjectId;
+  const box = row.getBoundingClientRect();
+  const ghost = row.cloneNode(true);
+  ghost.classList.add("tghost");
+  ghost.classList.remove("lifted");
+  ghost.style.width = box.width + "px";
+  document.body.append(ghost);
+  row.classList.add("lifted");
+  document.body.classList.add("dragging-tree");
+  dragging = { id, row, ghost, banned: branchOf(id) };
+  moveGhost(x, y);
+  edgeRaf = requestAnimationFrame(edgeScroll);
+}
+
+function moveGhost(x, y) {
+  dragging.ghost.style.left = x + "px";
+  dragging.ghost.style.top = y + "px";
+}
+
+/** Holding near the top or bottom keeps scrolling, so a long list is still reachable. */
+function edgeScroll() {
+  if (!dragging) return;
+  const h = window.innerHeight;
+  if (lastY < EDGE) window.scrollBy(0, -Math.ceil((EDGE - lastY) / 6));
+  else if (lastY > h - EDGE) window.scrollBy(0, Math.ceil((lastY - (h - EDGE)) / 6));
+  edgeRaf = requestAnimationFrame(edgeScroll);
+}
+
+function highlight(el) {
+  if (dropOn === el) return;
+  if (dropOn) dropOn.classList.remove("drop-into");
+  dropOn = el;
+  if (dropOn) dropOn.classList.add("drop-into");
+}
+
+/** What is under the finger. The ghost is pointer-events:none so it is never it. */
+function targetAt(x, y) {
+  const el = document.elementFromPoint(x, y);
+  if (!el) return null;
+  const row = el.closest(".trow[data-subject-id]");
+  if (row) return dragging.banned.has(row.dataset.subjectId) ? null : row;
+  // Group headings are drop targets in their own right: dropping on one makes the
+  // thing a root at that place, which is the only way to pull it out of a branch.
+  return el.closest(".tgroup[data-place-id]");
+}
+
+function endDrag(commit) {
+  if (!dragging) return;
+  const { row, ghost, id } = dragging;
+  const target = commit ? dropOn : null;
+  cancelAnimationFrame(edgeRaf);
+  ghost.remove();
+  row.classList.remove("lifted");
+  document.body.classList.remove("dragging-tree");
+  highlight(null);
+  dragging = null;
+  noClickUntil = Date.now() + 400;
+  if (!target) return;
+
+  // Both keys always go, nulls included: null is how a thing is moved out to the top
+  // level, so a key left off would make "not in a place" unsavable.
+  const patch = target.classList.contains("tgroup")
+    ? { parent_id: null, place_id: target.dataset.placeId || null }
+    : { parent_id: target.dataset.subjectId, place_id: null };
+
+  (async () => {
+    const r = await fetch("/api/subjects/" + encodeURIComponent(id), {
+      method: "PATCH", headers: { "content-type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    if (!r.ok) { err("Could not move that."); return; }
+    await loadSubjects();
+  })();
+}
+
+$("subjectList").addEventListener("pointerdown", (e) => {
+  // The controls on a row are their own targets, not handles to drag it by.
+  if (e.target.closest("[data-fold]") || e.target.closest("[data-add-inside]")) return;
+  const row = e.target.closest(".trow[data-subject-id]");
+  if (!row) return;
+  pressRow = row;
+  pressAt = { x: e.clientX, y: e.clientY };
+  pressId = e.pointerId;
+  lastY = e.clientY;
+  clearTimeout(holdTimer);
+  // A mouse has nothing else to do with press-and-move, so it waits for movement
+  // rather than for time. A finger has to hold, or scrolling would pick things up.
+  if (e.pointerType !== "mouse") {
+    holdTimer = setTimeout(() => {
+      if (!pressRow) return;
+      // Capture keeps a finger that wanders off the list still driving the drag.
+      // It can throw for a pointer the element does not own, and losing the whole
+      // gesture to that would be worse than dragging without it.
+      try { $("subjectList").setPointerCapture(pressId); } catch {}
+      beginDrag(pressRow, pressAt.x, pressAt.y);
+    }, DRAG_HOLD);
+  }
+});
+
+$("subjectList").addEventListener("pointermove", (e) => {
+  lastY = e.clientY;
+  if (dragging) {
+    e.preventDefault();
+    moveGhost(e.clientX, e.clientY);
+    highlight(targetAt(e.clientX, e.clientY));
+    return;
+  }
+  if (!pressRow) return;
+  const far = Math.hypot(e.clientX - pressAt.x, e.clientY - pressAt.y) > DRAG_SLOP;
+  if (!far) return;
+  if (e.pointerType === "mouse") {
+    try { $("subjectList").setPointerCapture(pressId); } catch {}
+    beginDrag(pressRow, e.clientX, e.clientY);
+  } else {
+    // Moved before the hold completed, so this was a scroll. Let it be one.
+    clearTimeout(holdTimer);
+    pressRow = null;
+  }
+});
+
+const releaseDrag = (commit) => {
+  clearTimeout(holdTimer);
+  pressRow = null;
+  endDrag(commit);
+};
+$("subjectList").addEventListener("pointerup", () => releaseDrag(true));
+$("subjectList").addEventListener("pointercancel", () => releaseDrag(false));
+
+/* The one line that makes dragging work on a phone at all.
+   touch-action is read once, when the finger lands — so the `touch-action:none` that
+   beginDrag puts on the list has no effect on the gesture already in flight. Without
+   this, the browser decides the first movement after the hold is a scroll, takes the
+   gesture over and fires pointercancel, and the thing you just picked up is dropped
+   before it has moved. The finger is stationary through the hold, so scrolling has
+   not started yet and this is still early enough to stop it starting.
+   Non-passive on purpose: a passive listener is not allowed to preventDefault. */
+document.addEventListener("touchmove", (e) => {
+  if (dragging) e.preventDefault();
+}, { passive: false });
+
+/* ---- adding a thing where you are looking ----
+   The + on a row or a heading opens the same Add screen with the answer to "where
+   does it live" already filled in. Adding a part loose and then going to find it
+   again is the friction this whole screen exists to remove. */
+$("subjectList").addEventListener("click", (e) => {
+  const add = e.target.closest("[data-add-inside]");
+  if (!add) return;
+  e.stopPropagation();
+  openAddThing(add.dataset.addInside);
+});
+
 /* ---- picking where a thing lives ----
    One select rather than two pickers: "in the yard" and "at home" are the same
    answer to the same question, and asking twice invites saying both. The server
@@ -2781,6 +3008,9 @@ function homeOptions(selected, excludeId) {
 }
 
 document.addEventListener("click", (e) => {
+  // A drag finishes as a click on whatever was underneath. Opening the thing you
+  // just dropped onto is the one behaviour that makes dragging feel broken.
+  if (Date.now() < noClickUntil) return;
   const row = e.target.closest("[data-subject-id]");
   if (row) openSubject(row.dataset.subjectId);
 });
@@ -2950,6 +3180,7 @@ function renderSubjectRead() {
     (s.files && s.files.length ? "<h2>Files</h2>" + fileList(s.files, true) : "") +
     '<div class="actions">' +
       '<button class="btn sm" id="noteAgainst">+ Note</button>' +
+      '<button class="btn sm ghost" id="addInside">+ Inside</button>' +
       '<button class="btn sm ghost" id="attachHere">Attach</button>' +
       '<button class="btn sm ghost" id="editSubject">Edit</button></div>' +
     "<h2>History</h2>" + history;
@@ -2967,6 +3198,12 @@ function renderSubjectRead() {
   $("attachHere").addEventListener("click", () => {
     subjectPick.dataset.subjectId = s.id;
     subjectPick.click();
+  });
+
+  // The same shortcut as the + in the tree, for when you got here by searching.
+  $("addInside").addEventListener("click", () => {
+    closeOverlayTo("subject", "subjects");
+    openAddThing("s:" + s.id);
   });
 
   // The main path for equipment: you are standing at the machine, you opened its
@@ -3324,18 +3561,26 @@ const TYPE_HINT = {
   generic: "Asks for make, model and notes — fine for most things.",
 };
 
-$("addSubject").addEventListener("click", async () => {
+/**
+ * Open the Add screen, optionally already filed.
+ *
+ * `preset` is a home value ("s:<id>", "p:<id>" or ""). With none, it defaults to
+ * where you are: adding a thing almost always happens standing in front of it, so
+ * the place already chosen on the capture screen is the right answer more often
+ * than "nowhere" is — and it is one tap to change.
+ */
+async function openAddThing(preset) {
   await loadTemplates();
   newCtx = context;                      // whatever you are capturing in right now
   $("newName").value = "";
-  // Default to where you are. Adding a thing almost always happens standing in
-  // front of it, so the place already chosen on the capture screen is the answer
-  // more often than "nowhere" is — and it is one tap to change.
-  $("newHome").innerHTML = homeOptions(herePlace ? "p:" + herePlace.id : "", null);
+  $("newHome").innerHTML =
+    homeOptions(preset != null ? preset : herePlace ? "p:" + herePlace.id : "", null);
   paintNewPickers();
   openOverlay("addThing");
   $("newName").focus();
-});
+}
+
+$("addSubject").addEventListener("click", () => openAddThing(null));
 $("addBack").addEventListener("click", () => closeOverlay("addThing"));
 
 function paintNewPickers() {

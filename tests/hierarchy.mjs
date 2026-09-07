@@ -97,7 +97,9 @@ await p.waitForTimeout(900);
 check(await p.isVisible("#thingsMode"), "the Things tab offers Tree and List");
 check(await p.getAttribute('[data-tmode="tree"]', "aria-pressed") === "true", "and opens on the tree");
 
-const groups = await p.$$eval(".tgroup", (n) => n.map((x) => x.textContent.trim()));
+// .gn, not the heading itself: the heading also carries the + that adds a thing
+// straight into that place, and its text would otherwise land in the name.
+const groups = await p.$$eval(".tgroup .gn", (n) => n.map((x) => x.textContent.trim()));
 check(groups.includes("Home " + TAG) && groups.includes("Rental " + TAG),
   "each place heads its own group");
 
