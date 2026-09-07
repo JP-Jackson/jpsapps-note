@@ -1,7 +1,10 @@
 import { chromium } from "playwright";
-const B = "http://127.0.0.1:8792";
+const B = process.env.NOTE_URL || "http://127.0.0.1:8787";
 let fails = 0;
 const check = (c, m) => { if (!c) fails++; console.log((c ? "  PASS  " : "  FAIL  ") + m); };
+
+// Run-scoped: the subject this attaches to must be this run's, not one left behind.
+const TAG = "run" + Math.random().toString(36).slice(2, 8);
 
 const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
 const ctx = await browser.newContext({ viewport: { width: 412, height: 915 }, serviceWorkers: "block" });
@@ -56,9 +59,15 @@ check(links.every(([, href, dl]) => /^\/api\/files\//.test(href) && dl),
 // ---------- attach to a thing ----------
 await p.evaluate(() => history.back());
 await p.waitForTimeout(500);
+const sub = await p.evaluate(async (tag) => {
+  const r = await fetch("/api/subjects", { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "Attach Target " + tag, type: "equipment", context: "work" }) });
+  return (await r.json()).id;
+}, TAG);
 await p.click('nav button[data-view="subjects"]');
-await p.waitForTimeout(600);
-await p.click("[data-subject-id]");
+await p.waitForTimeout(800);
+// By id: the list carries subjects left by every earlier run.
+await p.click(`[data-subject-id="${sub}"]`);
 await p.waitForSelector("#attachHere", { timeout: 4000 });
 const [chooser] = await Promise.all([p.waitForEvent("filechooser"), p.click("#attachHere")]);
 await chooser.setFiles("/tmp/fx/b44-log.html");

@@ -5,11 +5,16 @@ to keep a broken build from deploying, not to hold a server open.
 
 Run them by hand when the capture path changes:
 
-    npx wrangler dev --port 8791          # in one shell
-    npm run test:ui                       # in another
+    npx wrangler dev --port 8787              # in one shell
+    NOTE_URL=http://127.0.0.1:8787 npm run test:ui   # in another
 
-`attachments.mjs` needs its own server on **8792** (it uses the FILES binding) and
-fixtures in /tmp/fx; the other two use 8791.
+Every file honours `NOTE_URL`, so the whole suite runs against one server.
+`attachments.mjs` needs fixtures in /tmp/fx.
+
+They do **not** assume an empty database. Anything counted or matched by text is
+tagged unique to the run, and subjects are addressed by id rather than "the first
+row" — a leftover row from an earlier run should never make a correct app look
+broken. Several hours were lost to exactly that before the rule was adopted.
 
 They drive the real app in Chromium: contexts, the post-save link bar and its
 ranking, capture-from-a-thing, the back stack, and both offline branches (a link

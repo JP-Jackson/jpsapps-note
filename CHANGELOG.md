@@ -3,6 +3,13 @@
 Mirrors the list shown in Settings. One line per release — enough to answer
 "did the thing I asked for actually ship", not full release notes.
 
+## 1.16.0
+Activities (phase 5). Time as a stack rather than a clock: something is always
+running, and it nests one level — "At the shop" over "Compressor 2 — contactor". The
+capture screen shows what is running and every note is stamped with it. Capturing
+with nothing running asks when the day started; an activity still running from a
+previous day asks when it finished. Times are editable after the fact.
+
 ## 1.15.0
 Usage bars in Settings: AI neurons, database reads, database writes and storage,
 each against its free allocation, from the self-metered tally rather than

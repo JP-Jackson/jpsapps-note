@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#16222E">
-<meta name="app-version" content="1.15.0">
+<meta name="app-version" content="1.16.0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Note">
@@ -329,6 +329,45 @@ addEventListener("appinstalled", function () {
     text-transform:uppercase;letter-spacing:.04em}
   .rowx{flex:none;align-self:flex-start;background:none;border:0;color:var(--ink-2);
     font-size:19px;line-height:1;padding:0 2px 0 8px;cursor:pointer}
+  #activity{position:fixed;inset:0;z-index:41;background:var(--bg);overflow-y:auto;padding:0 0 40px}
+  #activity .bar{background:var(--navy);color:#fff;display:flex;align-items:center;gap:12px;
+    padding:12px 16px;padding-top:calc(12px + env(safe-area-inset-top));position:sticky;top:0}
+  #activity .bar button{background:none;border:0;color:#fff;font:600 15px var(--font-ui);
+    cursor:pointer;padding:4px 0}
+  #activity .body{max-width:560px;margin:0 auto;padding:16px}
+
+  #actStrip{display:flex;align-items:center;gap:10px;width:100%;margin:0 0 12px;
+    background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:11px 13px;cursor:pointer;font:inherit;color:inherit;text-align:left}
+  #actStrip .dot{width:9px;height:9px;border-radius:50%;background:var(--blue);flex:none}
+  #actStrip .dot.off{background:var(--ink-2);opacity:.5}
+  #actStrip .lbl{flex:1;min-width:0;font-size:14px;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap}
+  #actStrip .lbl .par{color:var(--ink-2)}
+  #actStrip .el{flex:none;font:600 12px/1 var(--font-mono);color:var(--ink-2)}
+
+  #actPrompt{background:var(--navy);color:#fff;border-radius:12px;padding:13px;
+    margin:0 0 12px}
+  #actPrompt p{margin:0 0 10px;font-size:13.5px;line-height:1.45}
+  #actPrompt .opts{display:flex;flex-wrap:wrap;gap:7px}
+  #actPrompt button{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);
+    color:#fff;border-radius:9px;padding:9px 12px;font:600 13px var(--font-ui);cursor:pointer}
+  #actPrompt button.go{background:var(--blue);border-color:var(--blue)}
+  #actPrompt button:active{transform:translateY(1px)}
+
+  .actnow{background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:15px;margin-bottom:14px}
+  .actnow .par{font:500 11px/1.5 var(--font-mono);text-transform:uppercase;
+    letter-spacing:.06em;color:var(--ink-2)}
+  .actnow h3{margin:3px 0 2px;font-size:19px;font-weight:600}
+  .actnow .since{font:400 12px/1.6 var(--font-mono);color:var(--ink-2)}
+  .actrow{display:flex;align-items:center;gap:10px;background:var(--card);
+    border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:7px}
+  .actrow .nm{flex:1;min-width:0;font-size:14px}
+  .actrow .nm small{display:block;color:var(--ink-2);font:400 11px/1.5 var(--font-mono)}
+  .actrow input[type=time]{width:96px;border:1px solid var(--line);border-radius:8px;
+    background:var(--bg);color:var(--ink);padding:7px 8px;font:400 13px var(--font-mono)}
+  .actrow .sub{padding-left:22px;border-left:2px solid var(--line);margin-left:4px}
   #installBar{display:flex;align-items:stretch;gap:0;margin:0 0 12px;
     background:var(--navy);border-radius:12px;overflow:hidden}
   #installGo{flex:1;min-width:0;display:flex;align-items:center;gap:11px;
@@ -665,6 +704,12 @@ addEventListener("appinstalled", function () {
 
   <!-- ============ CAPTURE ============ -->
   <section id="view-capture">
+    <!-- What is running. §4: something always is, and it nests one level in
+         practice. Tapping opens the stack; the prompts replace it in place rather
+         than stacking another thing to dismiss. -->
+    <button id="actStrip" hidden></button>
+    <div id="actPrompt" hidden></div>
+
     <!-- Only while it is worth saying: never once installed, and gone for good once
          dismissed. Settings keeps it either way. -->
     <div id="installBar" hidden>
@@ -807,6 +852,14 @@ addEventListener("appinstalled", function () {
     <strong style="font-size:15px">Thing</strong>
   </div>
   <div class="body" id="subjectBody"></div>
+</div>
+
+<div id="activity" hidden>
+  <div class="bar">
+    <button id="actBack">&lsaquo; Back</button>
+    <strong style="font-size:15px">Activity</strong>
+  </div>
+  <div class="body" id="actBody"></div>
 </div>
 
 <div id="settings" hidden>
@@ -1317,10 +1370,13 @@ function linkCandidates(text, ctx) {
     if (t.includes(name)) return 2;
     return name.split(/\s+/).some((w) => w.length >= 4 && t.includes(w)) ? 1 : 0;
   };
+  // Longer name wins a tie. "Shop Compressor" is a substring of "Shop Compressor 2",
+  // so a note naming the second matches both and the more specific one is the one
+  // meant -- otherwise which of the two comes back is down to insertion order.
   return live
-    .map((s) => [score(s), s])
-    .sort((a, b) => b[0] - a[0])
-    .map(([, s]) => s)
+    .map((s) => [score(s), (s.name || "").length, s])
+    .sort((a, b) => b[0] - a[0] || b[1] - a[1])
+    .map(([, , s]) => s)
     .slice(0, 5);
 }
 
@@ -1410,6 +1466,8 @@ $("save").addEventListener("click", async () => {
     lat, lng,
     is_open: flagged,
     subject_ids: linkTo ? [linkTo.id] : [],
+    // What was running when this happened, not when the queue drains (§6).
+    activity_id: act.current ? act.current.id : null,
     place_id: placeAccepted && herePlace ? herePlace.id : null,
     photo: photoBlob || null,
     files: pendingFiles.slice(),
@@ -1427,6 +1485,7 @@ $("save").addEventListener("click", async () => {
   $("save").disabled = false;
   renderRecent();
   offerLink(rec);                     // the note is safe; linking is now optional
+  maybeAskDayStart();
   flush();
 });
 
@@ -1446,6 +1505,7 @@ async function flush() {
           body: rec.body, lat: rec.lat, lng: rec.lng, is_open: rec.is_open,
           subject_ids: rec.subject_ids || [],
           place_id: rec.place_id || null,
+          activity_id: rec.activity_id || null,
         }),
       });
       // 401/403 means the Access session lapsed. Keep the queue and reload into login;
@@ -1763,6 +1823,7 @@ function renderDetail(rejectedText) {
     '<dl class="meta">' +
       "<dt>when</dt><dd>" + esc(fmtFull(e.created_at)) + "</dd>" +
       "<dt>context</dt><dd>" + esc(e.context) + "</dd>" +
+      (e.activity_label ? "<dt>during</dt><dd>" + esc(e.activity_label) + "</dd>" : "") +
       "<dt>status</dt><dd>" + (e.is_open ? "open follow-up" : "closed") + "</dd>" +
       (e.edited_at ? "<dt>edited</dt><dd>" + esc(fmtFull(e.edited_at)) + "</dd>" : "") +
       (e.lat != null ? "<dt>where</dt><dd>" + e.lat.toFixed(5) + ", " + e.lng.toFixed(5) + "</dd>" : "") +
@@ -1861,7 +1922,7 @@ async function toggleOpen() {
    same path and the stack can never drift out of step with what is on screen. */
 // Order matters: the topmost open one is what back should close, so newer/stacked
 // sheets come first. Miss one here and back silently falls through to leaving the app.
-const OVERLAYS = ["notesImport", "addThing", "detail", "subject", "settings"];
+const OVERLAYS = ["notesImport", "addThing", "detail", "subject", "activity", "settings"];
 
 function openOverlay(id) {
   $(id).hidden = false;
@@ -1949,6 +2010,7 @@ document.querySelector("nav").addEventListener("click", (e) => {
    One line per release, newest first. Kept deliberately short: it exists to answer
    "did the thing I asked for actually ship", not to be release notes. */
 const RELEASES = [
+  ["1.16.0", "Activities: what you are working on, nested, stamped onto every note"],
   ["1.15.0", "Usage bars in Settings; pick a cover photo for a thing"],
   ["1.14.0", "Delete a note within 15 minutes of capture; delete things and queued notes"],
   ["1.13.0", "Install offer on the capture screen, worded for phone or desktop"],
@@ -2095,6 +2157,50 @@ subjectPick.addEventListener("change", async (e) => {
   openSubject(id);
 });
 
+/**
+ * Everything delegated off the subject page, registered ONCE.
+ *
+ * These used to be added inside the render, which re-runs on every open and every
+ * change — and #subjectBody is the same element each time, so the listeners stacked
+ * up. Three renders meant one tap firing three uploads. Anything delegated to a
+ * container that outlives the render has to be bound outside it.
+ */
+let subjectBodyBound = false;
+function bindSubjectBody() {
+  if (subjectBodyBound || !$("subjectBody")) return;
+  subjectBodyBound = true;
+
+  $("subjectBody").addEventListener("click", async (ev) => {
+    const s = currentSubject;
+    if (!s) return;
+
+    // Tapping the current cover clears it, so the choice is undoable without an
+    // "unset" control that would only ever be pressed by mistake.
+    const hero = ev.target.closest("[data-hero]");
+    if (hero) {
+      const next = hero.classList.contains("on") ? null : hero.dataset.hero;
+      hero.disabled = true;
+      await fetch("/api/subjects/" + encodeURIComponent(s.id), {
+        method: "PATCH", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ hero_photo_id: next }),
+      });
+      await openSubject(s.id);
+      loadSubjects();
+      return;
+    }
+
+    const del = ev.target.closest("[data-delfile]");
+    if (del) {
+      ev.preventDefault();
+      if (!confirm("Remove this file? It is deleted from storage too.")) return;
+      await fetch("/api/files/" + encodeURIComponent(del.dataset.delfile), { method: "DELETE" });
+      openSubject(s.id);
+    }
+  });
+}
+
+bindSubjectBody();
+
 let editing = false;
 
 function renderSubject() {
@@ -2153,22 +2259,6 @@ function renderSubjectRead() {
 
   $("editSubject").addEventListener("click", () => { editing = true; renderSubject(); });
 
-  /* One tap, in the place you are already looking at the photos. Tapping the
-     current cover clears it, so the choice can be undone without hunting for an
-     "unset" control that would only ever be used by mistake. */
-  $("subjectBody").addEventListener("click", async (ev) => {
-    const b = ev.target.closest("[data-hero]");
-    if (!b) return;
-    const next = b.classList.contains("on") ? null : b.dataset.hero;
-    b.disabled = true;
-    await fetch("/api/subjects/" + encodeURIComponent(s.id), {
-      method: "PATCH", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ hero_photo_id: next }),
-    });
-    await openSubject(s.id);
-    loadSubjects();
-  });
-
   /* Attaching to a thing uploads straight away rather than queueing.
      The offline guarantee in §6 is about capture -- a note must never be lost
      because there is no signal. Filing a manual against a compressor is a desk
@@ -2177,15 +2267,6 @@ function renderSubjectRead() {
   $("attachHere").addEventListener("click", () => {
     subjectPick.dataset.subjectId = s.id;
     subjectPick.click();
-  });
-
-  $("subjectBody").addEventListener("click", async (e2) => {
-    const x = e2.target.closest("[data-delfile]");
-    if (!x) return;
-    e2.preventDefault();
-    if (!confirm("Remove this file? It is deleted from storage too.")) return;
-    await fetch("/api/files/" + encodeURIComponent(x.dataset.delfile), { method: "DELETE" });
-    openSubject(s.id);
   });
 
   // The main path for equipment: you are standing at the machine, you opened its
@@ -2703,6 +2784,259 @@ async function openSettings() {
 $("gear").addEventListener("click", openSettings);
 $("settingsBack").addEventListener("click", () => closeOverlay("settings"));
 
+/* -------------------------------------------------------------- activities
+   §4: time as a stack, not a clock. JP is salaried, so nothing here clocks in or
+   out — something is simply always running, and it nests: "At the shop" over
+   "Compressor 2 — contactor swap". The data allows any depth; this shows the leaf
+   and its parent and nothing more, which the spec says covers everything real. */
+let act = { current: null, parent: null, skew: 0 };
+let actTimer = null;
+
+/** Server time minus device time. Elapsed is drawn from the server's clock so a
+    phone that is a few minutes out does not show a wrong duration. */
+const nowish = () => Date.now() + act.skew;
+
+function elapsed(sinceMs) {
+  const mins = Math.max(0, Math.floor((nowish() - sinceMs) / 60000));
+  const h = Math.floor(mins / 60), m = mins % 60;
+  return h ? h + "h " + String(m).padStart(2, "0") + "m" : m + "m";
+}
+
+const clockOf = (ms) =>
+  new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+async function loadActivity() {
+  try {
+    const r = await fetch("/api/activities/current");
+    if (!r.ok) return;
+    const d = await r.json();
+    act.current = d.current;
+    act.parent = d.parent;
+    act.skew = d.now - Date.now();
+  } catch {
+    // Offline. Keep whatever was last known rather than blanking the strip —
+    // capture still needs something to stamp onto entries.
+  }
+  paintStrip();
+}
+
+function paintStrip() {
+  const el = $("actStrip");
+  if (!el) return;
+  if (!$("actPrompt").hidden) { el.hidden = true; return; }
+  el.hidden = false;
+  if (!act.current) {
+    el.innerHTML = '<span class="dot off"></span>' +
+      '<span class="lbl">Nothing running</span><span class="el">start</span>';
+    return;
+  }
+  const par = act.parent ? '<span class="par">' + esc(act.parent.label) + " &rsaquo; </span>" : "";
+  el.innerHTML = '<span class="dot"></span><span class="lbl">' + par +
+    esc(act.current.label) + '</span><span class="el">' + elapsed(act.current.started_at) + "</span>";
+}
+
+// A minute is the resolution anything here is shown at, so anything faster is work
+// for no visible difference.
+function startTicking() {
+  clearInterval(actTimer);
+  actTimer = setInterval(() => { if (!document.hidden) paintStrip(); }, 30000);
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) loadActivity(); });
+
+$("actStrip").addEventListener("click", openActivity);
+
+/* ---- the activity sheet ---- */
+async function openActivity() {
+  openOverlay("activity");
+  $("actBody").innerHTML = '<div class="empty">Loading…</div>';
+  await loadActivity();
+  const b = dayBounds(0);
+  let today = [];
+  try {
+    today = (await (await fetch("/api/activities?from=" + b.from + "&to=" + b.to)).json()).activities || [];
+  } catch {}
+  renderActivity(today);
+}
+
+function actRow(a, isChild) {
+  const end = a.ended_at
+    ? '<input type="time" data-end="' + esc(a.id) + '" value="' + hhmm(a.ended_at) + '">'
+    : '<button class="btn sm" data-endnow="' + esc(a.id) + '">End</button>';
+  return '<div class="actrow' + (isChild ? " sub" : "") + '">' +
+    '<span class="nm">' + esc(a.label) +
+      "<small>" + (a.ended_at ? mins(a.ended_at - a.started_at) : "running · " + elapsed(a.started_at)) +
+      "</small></span>" +
+    '<input type="time" data-start="' + esc(a.id) + '" value="' + hhmm(a.started_at) + '">' +
+    end + "</div>";
+}
+
+const hhmm = (ms) => {
+  const d = new Date(ms);
+  return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+};
+function mins(ms) {
+  const t = Math.max(0, Math.round(ms / 60000)), h = Math.floor(t / 60);
+  return h ? h + "h " + String(t % 60).padStart(2, "0") + "m" : t + "m";
+}
+
+function renderActivity(today) {
+  const cur = act.current;
+  const kids = new Set(today.map((a) => a.parent_id).filter(Boolean));
+
+  const now = cur
+    ? '<div class="actnow">' +
+        (act.parent ? '<div class="par">under ' + esc(act.parent.label) + "</div>" : "") +
+        "<h3>" + esc(cur.label) + "</h3>" +
+        '<div class="since">since ' + esc(clockOf(cur.started_at)) + " · " + esc(elapsed(cur.started_at)) + "</div>" +
+        '<div class="actions" style="margin-top:12px">' +
+          '<button class="btn sm" id="endCur">End this</button>' +
+        "</div></div>"
+    : '<p class="hint">Nothing is running. Start something and every note you ' +
+      "capture gets stamped with it.</p>";
+
+  const list = today.length
+    ? today.filter((a) => !a.parent_id).map((a) =>
+        actRow(a, false) +
+        today.filter((k) => k.parent_id === a.id).map((k) => actRow(k, true)).join("")).join("")
+    : '<p class="empty">Nothing recorded today yet.</p>';
+
+  $("actBody").innerHTML =
+    now +
+    "<h2>Start something</h2>" +
+    '<input id="actLabel" placeholder="At the shop, Compressor 2 — contactor…" ' +
+      'style="width:100%;border:1px solid var(--line);border-radius:10px;' +
+      'background:var(--card);color:var(--ink);padding:13px;font:inherit;margin-bottom:10px">' +
+    '<div class="actions">' +
+      '<button class="btn sm" id="startNew">Start</button>' +
+      (cur ? '<button class="btn sm ghost" id="startNest">Start under this</button>' : "") +
+    "</div>" +
+    "<h2>Today</h2>" + list +
+    (today.length ? '<p class="hint" style="margin-top:10px">Times are editable — ' +
+      "correct anything you forgot to start or stop.</p>" : "");
+
+  if ($("endCur")) $("endCur").addEventListener("click", () => endActivity(cur.id));
+  $("startNew").addEventListener("click", () => startActivity(false));
+  if ($("startNest")) $("startNest").addEventListener("click", () => startActivity(true));
+}
+
+async function startActivity(nest, label, startedAt) {
+  const text = (label || $("actLabel").value || "").trim();
+  if (!text) { $("actLabel").focus(); return; }
+  const r = await fetch("/api/activities", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ label: text, nest, context, started_at: startedAt }),
+  });
+  if (!r.ok) { alert("Could not start that."); return; }
+  if (!$("activity").hidden) openActivity(); else loadActivity();
+}
+
+async function endActivity(id, at) {
+  await fetch("/api/activities/" + encodeURIComponent(id) + "/end", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify(at ? { ended_at: at } : {}),
+  });
+  if (!$("activity").hidden) openActivity(); else loadActivity();
+}
+
+/* Corrections. A time input gives back hh:mm with no date, so it is applied to the
+   day the activity already belongs to rather than to today — otherwise fixing
+   yesterday's finish time would move it to now. */
+$("actBody").addEventListener("change", async (e) => {
+  const t = e.target;
+  const id = t.dataset.start || t.dataset.end;
+  if (!id || !t.value) return;
+  const which = t.dataset.start ? "started_at" : "ended_at";
+  const from = (await (await fetch("/api/activities?from=" + dayBounds(0).from +
+    "&to=" + dayBounds(0).to)).json()).activities.find((a) => a.id === id);
+  if (!from) return;
+  const base = new Date(which === "started_at" ? from.started_at : (from.ended_at || from.started_at));
+  const [h, m] = t.value.split(":").map(Number);
+  base.setHours(h, m, 0, 0);
+  const r = await fetch("/api/activities/" + encodeURIComponent(id), {
+    method: "PATCH", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ [which]: base.getTime() }),
+  });
+  if (!r.ok) { alert((await r.json().catch(() => ({}))).error || "Could not change that."); }
+  openActivity();
+});
+
+$("actBody").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-endnow]");
+  if (b) endActivity(b.dataset.endnow);
+});
+
+$("actBack").addEventListener("click", () => closeOverlay("activity"));
+
+/* ---- the two prompts §11 asks for ----
+   A web app cannot run in the background, so neither of these can fire on a timer
+   while the app is closed. Both are asked at the moment the answer is actually
+   knowable: one right after a capture, the other when the app is next opened. */
+function askPrompt(html, opts) {
+  const box = $("actPrompt");
+  box.innerHTML = "<p>" + html + "</p><div class=\"opts\">" +
+    opts.map((o, i) => '<button data-opt="' + i + '"' + (o.go ? ' class="go"' : "") + ">" +
+      esc(o.label) + "</button>").join("") + "</div>";
+  box.hidden = false;
+  paintStrip();
+  box.onclick = async (e) => {
+    const b = e.target.closest("[data-opt]");
+    if (!b) return;
+    box.hidden = true;
+    await opts[Number(b.dataset.opt)].run();
+    paintStrip();
+  };
+}
+
+/** Times worth offering as a start: the last few hours, on the hour. */
+function hourOptions(count) {
+  const out = [];
+  for (let i = 1; i <= count; i++) {
+    const d = new Date();
+    d.setHours(d.getHours() - i, 0, 0, 0);
+    out.push(d);
+  }
+  return out;
+}
+
+/* §11: "if an entry is made with nothing running, ask when the day started". The
+   label comes from the context so the answer is one tap; it is renameable in the
+   sheet, and a name asked for here would be a second question at the worst moment. */
+function maybeAskDayStart() {
+  if (act.current || !$("actPrompt").hidden) return;
+  const label = context === "home" ? "At home" : "At work";
+  const opts = hourOptions(3).map((d) => ({
+    label: clockOf(d.getTime()),
+    run: () => startActivity(false, label, d.getTime()),
+  }));
+  opts.push({ label: "Just now", go: true, run: () => startActivity(false, label) });
+  opts.push({ label: "Not now", run: async () => {} });
+  askPrompt("Nothing was running for that note. When did you start today?", opts);
+}
+
+/* §11: "if it's gone quiet in the evening, ask when it ended". Checked on open,
+   because that is when the app exists to be asked. Anything still running from a
+   previous day was almost certainly finished and never stopped. */
+function maybeAskDayEnd() {
+  const cur = act.current;
+  if (!cur) return;
+  const started = new Date(cur.started_at);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  if (started.getTime() >= today.getTime()) return;
+
+  const root = act.parent || cur;
+  const opts = [17, 18, 19].map((h) => {
+    const d = new Date(cur.started_at); d.setHours(h, 0, 0, 0);
+    return { label: clockOf(d.getTime()), run: () => endActivity(root.id, d.getTime()) };
+  });
+  opts.push({ label: "Still running", go: true, run: async () => {} });
+  askPrompt(
+    esc(cur.label) + " has been running since " +
+    esc(started.toLocaleDateString([], { weekday: "short" })) + " " +
+    esc(clockOf(cur.started_at)) + ". When did you finish?",
+    opts,
+  );
+}
+
 /* ------------------------------------------------------------------- usage
    §8: neurons, database reads, database writes and storage, each against its free
    allocation. The tally is self-metered from the meta every D1 query returns rather
@@ -2938,6 +3272,11 @@ function refreshInstall() {
 document.addEventListener("note:installable", refreshInstall);
 document.addEventListener("note:installed", refreshInstall);
 paintInstallBar();
+
+loadActivity().then(() => {
+  startTicking();
+  maybeAskDayEnd();
+});
 
 /* --------------------------------------------------------------- connections
    What Claude is connected with, and the switch that cuts it off. The consent

@@ -1,8 +1,12 @@
 import { chromium } from "playwright";
-const B = "http://127.0.0.1:8791";
+const B = process.env.NOTE_URL || "http://127.0.0.1:8787";
 const ok = (c, m) => console.log((c ? "  PASS  " : "  FAIL  ") + m);
 let fails = 0;
 const check = (c, m) => { if (!c) fails++; ok(c, m); };
+
+// Unique per run: these assertions count what landed, and a previous run's rows
+// would otherwise make a correct app look broken.
+const TAG = "run" + Math.random().toString(36).slice(2, 8);
 
 const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
 const ctx = await browser.newContext({ viewport: { width: 412, height: 915 },
@@ -34,7 +38,7 @@ check(await p.$("#subjChips") === null, "pre-save subject picker is gone");
 check(await p.isHidden("#linkBar"), "link bar hidden before any save");
 
 // ---------------------------------------------- capture a note naming a thing
-await p.fill("#body", "truck wouldn't start this morning, jumped it");
+await p.fill("#body", "truck wouldn't start this morning, jumped it " + TAG);
 await p.click("#save");
 await p.waitForSelector("#linkBar:not([hidden])", { timeout: 4000 });
 const cands = await p.$$eval("#linkChips .chip", (n) => n.map((x) => x.textContent.trim()));
@@ -44,13 +48,13 @@ check(await p.inputValue("#body") === "", "textarea cleared — the note saved f
 // ------------------------------------------------------------- tap to link
 await p.click('#linkChips [data-link]');
 await p.waitForTimeout(1200);
-const linked = await p.evaluate(async () => {
+const linked = await p.evaluate(async (tag) => {
   const r = await fetch("/api/subjects");
   const subs = (await r.json()).subjects;
   const t = subs.find((s) => s.name === "White truck");
   const d = await (await fetch("/api/subjects/" + t.id)).json();
-  return d.entries.map((e) => e.body);
-});
+  return d.entries.map((e) => e.body).filter((b) => (b || "").includes(tag));
+}, TAG);
 check(linked.length === 1 && /wouldn't start/.test(linked[0]), `link landed on the thing (${JSON.stringify(linked)})`);
 
 // --------------------------------------------------- + Note from a thing page
@@ -65,15 +69,16 @@ const against = (await p.textContent("#againstChip")).trim();
 check(/Shop Compressor/.test(against), `chip names the thing (got "${against}")`);
 check(await p.isVisible("#view-capture"), "landed on the capture screen");
 
-await p.fill("#body", "replaced the pressure switch");
+await p.fill("#body", "replaced the pressure switch " + TAG);
 await p.click("#save");
 await p.waitForTimeout(1500);
 check(await p.isHidden("#againstChip"), "'Against' chip clears after saving");
-const comp = await p.evaluate(async () => {
+const comp = await p.evaluate(async (tag) => {
   const subs = (await (await fetch("/api/subjects")).json()).subjects;
   const c = subs.find((s) => s.name === "Shop Compressor");
-  return (await (await fetch("/api/subjects/" + c.id)).json()).entries.map((e) => e.body);
-});
+  return (await (await fetch("/api/subjects/" + c.id)).json()).entries
+    .map((e) => e.body).filter((b) => (b || "").includes(tag));
+}, TAG);
 check(comp.length === 1 && /pressure switch/.test(comp[0]), `pre-linked note landed (${JSON.stringify(comp)})`);
 check(await p.isHidden("#linkBar"), "no link bar offered when it was already linked");
 

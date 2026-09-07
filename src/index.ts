@@ -196,6 +196,10 @@ app.post("/api/entries", async (c) => {
     lng: num(e.lng),
     is_open: e.is_open === true,
     place_id: typeof e.place_id === "string" ? e.place_id : null,
+    // Stamped by the device, not looked up here: an entry captured offline belongs
+    // to whatever was running when it happened, not to whatever is running by the
+    // time the queue drains (§6).
+    activity_id: typeof e.activity_id === "string" ? e.activity_id : null,
   });
 
   // §4: one capture can touch a site, a panel and the device on it, so this is a
@@ -631,6 +635,134 @@ app.delete("/api/subjects/:id", async (c) => {
   if (!attachments) return c.json({ error: "No such subject" }, 404);
   await dropObjects(c.env, attachments);
   return c.json({ deleted: true });
+});
+
+/* -------------------------------------------------------------- activities
+ *
+ * §4: time as a stack, not a clock. JP is salaried, so nothing here clocks in or
+ * out — something is simply always running, and it nests one level deep in
+ * practice: "At the shop" over "Compressor 2 — contactor swap".
+ */
+
+/** The running chain, leaf first, with what the interface needs to draw it. */
+app.get("/api/activities/current", async (c) => {
+  const stack = await c.get("db").openStack();
+  return c.json({
+    current: stack[0] ?? null,
+    parent: stack[1] ?? null,
+    depth: stack.length,
+    now: Date.now(),
+  });
+});
+
+app.get("/api/activities", async (c) => {
+  const from = Number(c.req.query("from"));
+  const to = Number(c.req.query("to"));
+  if (!Number.isFinite(from) || !Number.isFinite(to)) {
+    return c.json({ error: "from and to (epoch ms) are required" }, 400);
+  }
+  return c.json({ activities: await c.get("db").activitiesBetween(from, to), now: Date.now() });
+});
+
+/**
+ * Start something.
+ *
+ * `nest` decides what happens to what is already running: nested puts the new one
+ * underneath, otherwise the running stack is closed first. That is the whole
+ * grammar — "I'm now doing this as part of that" versus "I've moved on".
+ */
+app.post("/api/activities", async (c) => {
+  const db = c.get("db");
+  let body: Record<string, unknown>;
+  try {
+    body = (await c.req.json()) as Record<string, unknown>;
+  } catch {
+    return c.json({ error: "Body must be JSON" }, 400);
+  }
+
+  const label = typeof body.label === "string" ? body.label.trim() : "";
+  if (!label) return c.json({ error: "label is required" }, 400);
+
+  const startedAt = typeof body.started_at === "number" && Number.isFinite(body.started_at)
+    ? body.started_at
+    : Date.now();
+
+  const stack = await db.openStack();
+  const nest = body.nest === true && stack.length > 0;
+
+  if (!nest && stack.length) {
+    // Closing the root closes the subtree with it. The new one starts where the old
+    // one stopped, so a backdated start does not leave a gap or an overlap.
+    const root = stack[stack.length - 1]!;
+    await db.endActivity(root.id, Math.max(startedAt, root.started_at));
+  }
+
+  const parent = nest ? stack[0]! : null;
+  const started = await db.startActivity({
+    label,
+    context: typeof body.context === "string" ? body.context : (parent?.context ?? "work"),
+    parent_id: parent?.id ?? null,
+    subject_id: typeof body.subject_id === "string" ? body.subject_id : null,
+    // A child cannot start before its parent did; clamping beats rejecting, since
+    // the number came from a picker and the intent is obvious either way.
+    started_at: parent ? Math.max(startedAt, parent.started_at) : startedAt,
+  });
+  return c.json(started, 201);
+});
+
+/** Stop this one and anything under it. Its parent, if any, becomes current again. */
+app.post("/api/activities/:id/end", async (c) => {
+  const db = c.get("db");
+  const id = c.req.param("id");
+  const row = await db.activity(id);
+  if (!row) return c.json({ error: "No such activity" }, 404);
+
+  let body: Record<string, unknown> = {};
+  try {
+    body = (await c.req.json()) as Record<string, unknown>;
+  } catch {
+    // An end with no body means "now", which is the common case.
+  }
+  const at = typeof body.ended_at === "number" && Number.isFinite(body.ended_at)
+    ? Math.max(body.ended_at, row.started_at)
+    : Date.now();
+
+  const closed = await db.endActivity(id, at);
+  return c.json({ ended: closed, ended_at: at });
+});
+
+/** Corrections, which §11 asks for by name: "always manually correctable". */
+app.patch("/api/activities/:id", async (c) => {
+  const db = c.get("db");
+  const id = c.req.param("id");
+  let body: Record<string, unknown>;
+  try {
+    body = (await c.req.json()) as Record<string, unknown>;
+  } catch {
+    return c.json({ error: "Body must be JSON" }, 400);
+  }
+
+  const patch: { label?: string; started_at?: number; ended_at?: number | null } = {};
+  if (typeof body.label === "string" && body.label.trim()) patch.label = body.label;
+  if (typeof body.started_at === "number" && Number.isFinite(body.started_at)) {
+    patch.started_at = body.started_at;
+  }
+  // null reopens it — the way to undo an end that was recorded too early.
+  if (body.ended_at === null) patch.ended_at = null;
+  else if (typeof body.ended_at === "number" && Number.isFinite(body.ended_at)) {
+    patch.ended_at = body.ended_at;
+  }
+
+  if (patch.started_at != null && patch.ended_at != null && patch.ended_at < patch.started_at) {
+    return c.json({ error: "That would end it before it started." }, 400);
+  }
+
+  const row = await db.updateActivity(id, patch);
+  if (!row) return c.json({ error: "No such activity" }, 404);
+  if (row.ended_at != null && row.ended_at < row.started_at) {
+    return c.json({ error: "That would end it before it started." }, 400);
+  }
+  return c.json(row);
 });
 
 /* ------------------------------------------------------------------- files

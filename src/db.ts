@@ -34,6 +34,8 @@ export interface QueryCost {
 
 /** A capture from the device. `id` is generated there, at capture time (§6). */
 export interface NewEntry {
+  /** What was running when this was captured (§11 phase 2: auto-stamped). */
+  activity_id?: string | null;
   id: string;
   created_at: number;
   context: string;
@@ -46,6 +48,8 @@ export interface NewEntry {
 
 export interface EntryRow {
   id: string;
+  /** What was running when this was captured (§11 phase 2). */
+  activity_id?: string | null;
   created_at: number;
   synced_at: number | null;
   context: string;
@@ -68,6 +72,7 @@ export interface AttachmentRow {
 
 /** An entry plus everything the detail view needs in one round trip. */
 export interface EntryDetail extends EntryRow {
+  activity_label?: string | null;
   version: number;
   edited_at: number | null;
   attachments: AttachmentRow[];
@@ -139,6 +144,24 @@ export interface NewSubject {
   name: string;
   type: string;
   context: string;
+}
+
+export interface ActivityRow {
+  id: string;
+  parent_id: string | null;
+  label: string;
+  subject_id: string | null;
+  context: string;
+  started_at: number;
+  ended_at: number | null;
+}
+
+export interface NewActivity {
+  label: string;
+  context: string;
+  parent_id?: string | null;
+  subject_id?: string | null;
+  started_at?: number;
 }
 
 export interface UsageTotals {
@@ -474,8 +497,8 @@ export class Db {
     const res = await this.d1
       .prepare(
         `INSERT INTO entries
-           (id, user_id, created_at, synced_at, context, body, body_raw, lat, lng, is_open, place_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           (id, user_id, created_at, synced_at, context, body, body_raw, lat, lng, is_open, place_id, activity_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (id) DO NOTHING`,
       )
       .bind(
@@ -490,6 +513,7 @@ export class Db {
         e.lng,
         e.is_open ? 1 : 0,
         e.place_id ?? null,
+        e.activity_id ?? null,
       )
       .run();
     readMeta(this.meter, res.meta);
@@ -501,7 +525,7 @@ export class Db {
     return this.all<EntryRow>(
       this.d1
         .prepare(
-          `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open
+          `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open, activity_id
              FROM entries
             WHERE user_id = ? AND deleted_at IS NULL
             ORDER BY created_at DESC
@@ -520,7 +544,7 @@ export class Db {
     return this.all<EntryRow>(
       this.d1
         .prepare(
-          `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open
+          `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open, activity_id
              FROM entries
             WHERE user_id = ? AND deleted_at IS NULL
               AND created_at >= ? AND created_at < ?
@@ -541,7 +565,7 @@ export class Db {
     return this.all<EntryRow>(
       this.d1
         .prepare(
-          `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open
+          `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open, activity_id
              FROM entries
             WHERE user_id = ? AND is_open = 1 AND deleted_at IS NULL
             ORDER BY created_at ASC
@@ -563,7 +587,7 @@ export class Db {
     return this.all<EntryRow>(
       this.d1
         .prepare(
-          `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open
+          `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open, activity_id
              FROM entries
             WHERE user_id = ? AND deleted_at IS NULL
               AND (body LIKE ?2 ESCAPE '\\' OR body_raw LIKE ?2 ESCAPE '\\')
@@ -576,13 +600,22 @@ export class Db {
 
   /** An entry with its photos and both ends of its follow-up thread. */
   async entryDetail(id: string): Promise<EntryDetail | null> {
-    const row = await this.first<EntryRow & { version: number; edited_at: number | null; resolved_by_id: string | null }>(
+    const row = await this.first<
+      EntryRow & {
+        version: number;
+        edited_at: number | null;
+        resolved_by_id: string | null;
+        activity_label: string | null;
+      }
+    >(
       this.d1
         .prepare(
-          `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open,
-                  version, edited_at, resolved_by AS resolved_by_id
-             FROM entries
-            WHERE id = ? AND user_id = ? AND deleted_at IS NULL`,
+          `SELECT e.id, e.created_at, e.synced_at, e.context, e.body, e.body_raw, e.lat, e.lng,
+                  e.is_open, e.activity_id, e.version, e.edited_at,
+                  e.resolved_by AS resolved_by_id, a.label AS activity_label
+             FROM entries e
+             LEFT JOIN activities a ON a.id = e.activity_id AND a.user_id = e.user_id
+            WHERE e.id = ? AND e.user_id = ? AND e.deleted_at IS NULL`,
         )
         .bind(id, this.userId),
     );
@@ -599,7 +632,7 @@ export class Db {
         .bind(id, this.userId),
     );
 
-    const brief = `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open
+    const brief = `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open, activity_id
                      FROM entries WHERE id = ? AND user_id = ? AND deleted_at IS NULL`;
 
     const resolved_by = row.resolved_by_id
@@ -610,7 +643,7 @@ export class Db {
     const resolves = await this.first<EntryRow>(
       this.d1
         .prepare(
-          `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open
+          `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open, activity_id
              FROM entries WHERE resolved_by = ? AND user_id = ? AND deleted_at IS NULL`,
         )
         .bind(id, this.userId),
@@ -1089,6 +1122,152 @@ export class Db {
             ORDER BY s.name COLLATE NOCASE`,
         )
         .bind(entryId, this.userId),
+    );
+  }
+
+  // ------------------------------------------------------------- activities
+  // §4: time is a stack, not a clock. Something is always running and it nests —
+  // "At the shop" over "Compressor 2 — contactor swap". parent_id allows any depth
+  // for free; the interface only ever shows the leaf and its parent.
+
+  /**
+   * The open chain, leaf first.
+   *
+   * Read as one query and assembled here rather than walked with a recursive CTE:
+   * there is only ever one open chain and it is two or three rows deep, so the walk
+   * would cost more in query planning than the rows it saves.
+   */
+  async openStack(): Promise<ActivityRow[]> {
+    const open = await this.all<ActivityRow>(
+      this.d1
+        .prepare(
+          `SELECT id, parent_id, label, subject_id, context, started_at, ended_at
+             FROM activities WHERE user_id = ? AND ended_at IS NULL
+            ORDER BY started_at DESC`,
+        )
+        .bind(this.userId),
+    );
+    if (!open.length) return [];
+
+    // The leaf is the one nothing else claims as a parent. Deriving it beats
+    // trusting recency: a correction can move a start time behind its own parent's.
+    const parents = new Set(open.map((a) => a.parent_id).filter(Boolean));
+    const byId = new Map(open.map((a) => [a.id, a]));
+    const leaf = open.find((a) => !parents.has(a.id)) ?? open[0]!;
+
+    const chain: ActivityRow[] = [];
+    let cur: ActivityRow | undefined = leaf;
+    while (cur && chain.length < 8) {          // a cycle would otherwise hang here
+      chain.push(cur);
+      cur = cur.parent_id ? byId.get(cur.parent_id) : undefined;
+    }
+    return chain;
+  }
+
+  async startActivity(a: NewActivity): Promise<ActivityRow> {
+    const row: ActivityRow = {
+      id: newId(),
+      parent_id: a.parent_id ?? null,
+      label: a.label.trim(),
+      subject_id: a.subject_id ?? null,
+      context: normaliseContext(a.context),
+      started_at: a.started_at ?? Date.now(),
+      ended_at: null,
+    };
+    await this.run(
+      this.d1
+        .prepare(
+          `INSERT INTO activities
+             (id, user_id, parent_id, label, subject_id, context, started_at, ended_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`,
+        )
+        .bind(row.id, this.userId, row.parent_id, row.label, row.subject_id, row.context, row.started_at),
+    );
+    return row;
+  }
+
+  /**
+   * End an activity and anything nested under it.
+   *
+   * A child cannot outlive its parent — "Compressor 2" happening after "At the
+   * shop" finished is not a thing that can be true — so the whole subtree closes
+   * at the same instant. Depth is bounded rather than recursive because the
+   * interface only ever creates two levels; the loop is there so data that somehow
+   * went deeper still closes cleanly.
+   */
+  async endActivity(id: string, endedAt: number = Date.now()): Promise<number> {
+    let ids = [id];
+    const all: string[] = [];
+    for (let depth = 0; depth < 8 && ids.length; depth++) {
+      all.push(...ids);
+      const marks = ids.map(() => "?").join(",");
+      const kids = await this.all<{ id: string }>(
+        this.d1
+          .prepare(
+            `SELECT id FROM activities
+              WHERE user_id = ? AND ended_at IS NULL AND parent_id IN (${marks})`,
+          )
+          .bind(this.userId, ...ids),
+      );
+      ids = kids.map((k) => k.id);
+    }
+
+    const marks = all.map(() => "?").join(",");
+    const res = await this.d1
+      .prepare(
+        `UPDATE activities SET ended_at = ?
+          WHERE user_id = ? AND ended_at IS NULL AND id IN (${marks})`,
+      )
+      .bind(endedAt, this.userId, ...all)
+      .run();
+    readMeta(this.meter, res.meta);
+    return res.meta?.changes ?? 0;
+  }
+
+  /** Corrections after the fact, which §11 calls for explicitly. */
+  async updateActivity(
+    id: string,
+    patch: { label?: string; started_at?: number; ended_at?: number | null },
+  ): Promise<ActivityRow | null> {
+    const sets: string[] = [];
+    const vals: unknown[] = [];
+    for (const [k, v] of Object.entries(patch)) {
+      if (v === undefined) continue;
+      sets.push(`${k} = ?`);
+      vals.push(typeof v === "string" ? v.trim() : v);
+    }
+    if (sets.length) {
+      await this.run(
+        this.d1
+          .prepare(`UPDATE activities SET ${sets.join(", ")} WHERE id = ? AND user_id = ?`)
+          .bind(...vals, id, this.userId),
+      );
+    }
+    return this.activity(id);
+  }
+
+  async activity(id: string): Promise<ActivityRow | null> {
+    return this.first<ActivityRow>(
+      this.d1
+        .prepare(
+          `SELECT id, parent_id, label, subject_id, context, started_at, ended_at
+             FROM activities WHERE id = ? AND user_id = ?`,
+        )
+        .bind(id, this.userId),
+    );
+  }
+
+  /** Everything that overlaps a window, so a span crossing midnight still appears. */
+  async activitiesBetween(fromMs: number, toMs: number): Promise<ActivityRow[]> {
+    return this.all<ActivityRow>(
+      this.d1
+        .prepare(
+          `SELECT id, parent_id, label, subject_id, context, started_at, ended_at
+             FROM activities
+            WHERE user_id = ? AND started_at < ? AND (ended_at IS NULL OR ended_at > ?)
+            ORDER BY started_at ASC`,
+        )
+        .bind(this.userId, toMs, fromMs),
     );
   }
 

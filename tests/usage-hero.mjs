@@ -1,5 +1,5 @@
 import { chromium } from "playwright";
-const B = "http://127.0.0.1:8792";
+const B = process.env.NOTE_URL || "http://127.0.0.1:8787";
 let fails = 0;
 const check = (c, m) => { if (!c) fails++; console.log((c ? "  PASS  " : "  FAIL  ") + m); };
 const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
