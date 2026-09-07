@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#16222E">
-<meta name="app-version" content="1.18.0">
+<meta name="app-version" content="1.19.0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Note">
@@ -575,6 +575,42 @@ addEventListener("appinstalled", function () {
   .subj .nm{flex:1;min-width:0;font-weight:600;font-size:16px;word-wrap:break-word}
   .subj .kind{font:500 10px/1 var(--font-mono);letter-spacing:.08em;text-transform:uppercase;
     color:var(--ink-2);white-space:nowrap}
+
+  /* ---------- the tree ----------
+     Home > Yard > Front sprinkler. Places head each group: §4 already says where
+     things happen, so they are the roots. A "Home" thing sitting beside the "Home"
+     place would be two records of the same yard, only one of which collects notes.
+
+     Depth is drawn with a nested container and a rule down its left edge rather than
+     a computed indent, so collapsing a branch is hiding one element and four levels
+     deep still has somewhere to go on a 412px phone. */
+  .tgroup{font:500 10px/1 var(--font-mono);letter-spacing:.08em;text-transform:uppercase;
+    color:var(--ink-2);margin:18px 0 7px}
+  .tgroup:first-child{margin-top:0}
+  .trow{display:flex;align-items:center;gap:8px;width:100%;text-align:left;font:inherit;
+    color:inherit;background:var(--card);border:1px solid var(--line);border-radius:10px;
+    padding:11px 12px;margin-bottom:6px;cursor:pointer}
+  .trow .nm{flex:1;min-width:0;font-weight:600;font-size:15px;word-wrap:break-word}
+  .trow .kind{font:500 10px/1 var(--font-mono);letter-spacing:.08em;text-transform:uppercase;
+    color:var(--ink-2);white-space:nowrap}
+  .trow .cover{width:30px;height:30px;border-radius:7px;object-fit:cover;flex:none;
+    border:1px solid var(--line);display:block}
+  .trow .cover.none{background:var(--bg);opacity:.55}
+  /* The twisty is a button inside a button-shaped row, so it has to be visibly its
+     own target — otherwise collapsing a branch and opening it are the same tap. */
+  .tw{flex:none;width:26px;height:26px;border:1px solid var(--line);border-radius:7px;
+    background:var(--bg);color:var(--ink-2);cursor:pointer;font:600 10px/1 var(--font-mono);
+    display:flex;align-items:center;justify-content:center;padding:0}
+  .tw[aria-expanded="false"]{color:var(--ink)}
+  /* A leaf has no twisty but still needs its width, or names stagger down the column. */
+  .tw.leaf{visibility:hidden}
+  /* The breadcrumb on a thing's page: where it sits, and the way back up. */
+  .crumbs{font:500 11px/1.5 var(--font-mono);letter-spacing:.04em;color:var(--ink-2);
+    margin-bottom:6px;word-wrap:break-word}
+  .crumbs button{background:none;border:0;padding:0;font:inherit;color:var(--blue);
+    cursor:pointer;text-decoration:underline}
+  .tkids{margin-left:13px;padding-left:11px;border-left:1px solid var(--line)}
+  .tcount{font:500 10px/1 var(--font-mono);color:var(--ink-2);white-space:nowrap}
   /* Attribute rows are key/value pairs, not a fixed schema (§4). */
   .attr{display:grid;grid-template-columns:1fr 1.4fr auto;gap:7px;margin-bottom:7px}
   .attr input{border:1px solid var(--line);border-radius:8px;background:var(--card);
@@ -789,6 +825,13 @@ addEventListener("appinstalled", function () {
   <!-- ============ SUBJECTS ============ -->
   <section id="view-subjects" hidden>
     <button class="btn" id="addSubject" style="margin-bottom:14px">+ Add a thing</button>
+    <!-- Tree by default: the nesting is the thing that was missing, and a flat list
+         of forty names is what it was missing from. The flat list stays because it
+         is the faster way to find one thing when you already know its name. -->
+    <div class="chips" id="thingsMode" style="margin-bottom:12px">
+      <button class="chip" data-tmode="tree" aria-pressed="true">Tree</button>
+      <button class="chip" data-tmode="list" aria-pressed="false">List</button>
+    </div>
     <div id="subjectList"><div class="empty">Loading…</div></div>
     <h2>Bulk add</h2>
     <p class="empty" style="padding-top:0">Paste a list Claude structured for you — one per line as
@@ -873,6 +916,13 @@ addEventListener("appinstalled", function () {
       <button class="chip" data-nctx="work"     aria-pressed="true">Work</button>
       <button class="chip" data-nctx="home"     aria-pressed="false">Home</button>
     </div>
+
+    <h2>Where does it live?</h2>
+    <p class="empty" style="padding-top:0">Optional. A place, or another thing —
+      the front sprinkler lives in the yard, and the yard is at home.</p>
+    <select id="newHome" style="width:100%;border:1px solid var(--line);border-radius:8px;
+      background:var(--card);color:var(--ink);padding:11px;font:400 15px var(--font-ui);
+      margin-bottom:14px"></select>
 
     <button class="btn" id="createThing" style="margin-top:6px">Add it</button>
   </div>
@@ -1492,13 +1542,20 @@ function linkCandidates(text, ctx) {
     if (t.includes(name)) return 2;
     return name.split(/\s+/).some((w) => w.length >= 4 && t.includes(w)) ? 1 : 0;
   };
+  // What lives where you are, ranked second. This is the payoff of the hierarchy
+  // beyond browsing: at the rental, the rental's air conditioner is the one meant.
+  // Second and not first, because a thing the note actually names beats a guess
+  // from geography every time -- the note is evidence, the place is a hint.
+  const byId = new Map(subjects.map((x) => [x.id, x]));
+  const here = herePlace ? herePlace.id : null;
+  const atHere = (s) => (here && placeOf(s, byId) === here ? 1 : 0);
   // Longer name wins a tie. "Shop Compressor" is a substring of "Shop Compressor 2",
   // so a note naming the second matches both and the more specific one is the one
   // meant -- otherwise which of the two comes back is down to insertion order.
   return live
-    .map((s) => [score(s), (s.name || "").length, s])
-    .sort((a, b) => b[0] - a[0] || b[1] - a[1])
-    .map(([, , s]) => s)
+    .map((s) => [score(s), atHere(s), (s.name || "").length, s])
+    .sort((a, b) => b[0] - a[0] || b[1] - a[1] || b[2] - a[2])
+    .map((r) => r[3])
     .slice(0, 5);
 }
 
@@ -2133,6 +2190,7 @@ document.querySelector("nav").addEventListener("click", (e) => {
    One line per release, newest first. Kept deliberately short: it exists to answer
    "did the thing I asked for actually ship", not to be release notes. */
 const RELEASES = [
+  ["1.19.0", "Things nest: Home > Yard > Front sprinkler, drawn as a tree"],
   ["1.18.0", "Pick where a note happened; add and remove places; date on the log"],
   ["1.17.0", "Dates read Monday, 9/7/2026 1:10 PM everywhere; remove an activity"],
   ["1.16.0", "Activities: what you are working on, nested, stamped onto every note"],
@@ -2183,16 +2241,144 @@ async function loadTemplates() {
   return templates;
 }
 
-async function loadSubjects() {
-  try {
-    const r = await fetch("/api/subjects");
-    subjects = (await r.json()).subjects || [];
-  } catch {
-    $("subjectList").innerHTML = '<div class="empty">Offline — things need a connection.</div>';
-    return;
-  }
-  const node = $("subjectList");
+/* ------------------------------------------------------------------ the tree
+   Home → Yard → Front sprinkler; Rental → Air conditioner.
+
+   Places are the roots. §4 already says places are where things happen, so making
+   a "Home" thing to sit above the yard would leave two records of the same home,
+   one of which collects notes and one of which does not.
+
+   The whole tree is assembled here from the one flat /api/subjects response rather
+   than by a recursive query. At this scale that is one read instead of one per
+   level, and there is only one place to be wrong about the shape. */
+const TMODE_KEY = "note.things.view";
+const TFOLD_KEY = "note.things.folded";
+
+let thingsMode = "tree";
+try { thingsMode = localStorage.getItem(TMODE_KEY) || "tree"; } catch {}
+let folded = new Set();
+try { folded = new Set(JSON.parse(localStorage.getItem(TFOLD_KEY) || "[]")); } catch {}
+
+function saveFolded() {
+  try { localStorage.setItem(TFOLD_KEY, JSON.stringify([...folded])); } catch {}
+}
+
+/**
+ * Group the flat list into parents and roots.
+ *
+ * A child whose parent is archived or gone is promoted to a root rather than
+ * dropped: it still exists, and a thing that is nowhere on the screen cannot be
+ * moved back. The depth guard is for the same reason — the server refuses to make
+ * a cycle, but a tab that hangs is a worse way to find out it failed.
+ */
+function treeIndex() {
+  const live = subjects.filter((s) => !s.archived_at);
+  const byId = new Map(live.map((s) => [s.id, s]));
+  const kids = new Map();
+  const roots = new Map();
+  live.forEach((s) => {
+    if (s.parent_id && byId.has(s.parent_id)) {
+      if (!kids.has(s.parent_id)) kids.set(s.parent_id, []);
+      kids.get(s.parent_id).push(s);
+    } else {
+      const key = s.place_id || "";
+      if (!roots.has(key)) roots.set(key, []);
+      roots.get(key).push(s);
+    }
+  });
+  const byName = (a, b) => (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base" });
+  kids.forEach((v) => v.sort(byName));
+  roots.forEach((v) => v.sort(byName));
+  return { kids, roots, byId };
+}
+
+/** Which place a thing is ultimately in — its own, or its root ancestor's. */
+function placeOf(s, byId) {
+  let at = s;
+  for (let i = 0; at && at.parent_id && i < 32; i++) at = byId.get(at.parent_id);
+  return (at && at.place_id) || null;
+}
+
+function coverHtml(s, cls) {
+  return s.hero_url
+    ? '<img class="' + cls + '" src="' + esc(s.hero_url) + '" alt="" onerror="this.remove()">'
+    : '<span class="' + cls + ' none"></span>';
+}
+
+function treeBranch(rows, kids, depth) {
+  const box = document.createElement("div");
+  box.className = depth ? "tkids" : "";
+  rows.forEach((s) => {
+    const mine = kids.get(s.id) || [];
+    const shut = folded.has(s.id);
+    // A div, not a button: the twisty is a button and nesting one inside another is
+    // invalid markup that browsers resolve by unnesting it — which moves the row's
+    // own text out from under the click target.
+    const row = document.createElement("div");
+    row.className = "trow";
+    row.dataset.subjectId = s.id;
+    row.setAttribute("role", "button");
+    row.tabIndex = 0;
+    row.innerHTML =
+      (mine.length
+        ? '<button class="tw" data-fold="' + esc(s.id) + '" aria-expanded="' + String(!shut) +
+          '" aria-label="' + (shut ? "Show" : "Hide") + ' what is inside ' + esc(s.name) + '">' +
+          (shut ? "+" : "−") + "</button>"
+        : '<span class="tw leaf"></span>') +
+      coverHtml(s, "cover") +
+      '<span class="nm">' + esc(s.name) + "</span>" +
+      (mine.length && shut ? '<span class="tcount">' + mine.length + "</span>" : "") +
+      '<span class="kind">' + esc(s.type) + " · " + esc(s.context) + "</span>";
+    box.append(row);
+    if (mine.length && !shut && depth < 12) box.append(treeBranch(mine, kids, depth + 1));
+  });
+  return box;
+}
+
+function renderTree(node) {
+  const { kids, roots } = treeIndex();
+  const groups = [];
+  places.forEach((p) => {
+    const rows = roots.get(p.id) || [];
+    if (rows.length) groups.push([p.name, rows]);
+  });
+  const loose = roots.get("") || [];
+  // Last, not first: the things that have been filed are the point of the screen,
+  // and the ones that have not are the pile you work through.
+  if (loose.length) groups.push([places.length ? "Not in a place" : "Everything", loose]);
+
   node.replaceChildren();
+  groups.forEach(([label, rows]) => {
+    const h = document.createElement("div");
+    h.className = "tgroup";
+    h.textContent = label;
+    node.append(h);
+    node.append(treeBranch(rows, kids, 0));
+  });
+}
+
+function renderFlat(node) {
+  node.replaceChildren();
+  subjects.forEach((s) => {
+    const b = document.createElement("button");
+    b.className = "subj";
+    b.dataset.subjectId = s.id;
+    b.innerHTML =
+      coverHtml(s, "cover") +
+      '<span class="nm">' + esc(s.name) + "</span>" +
+      '<span class="kind">' + esc(s.type) + " · " + esc(s.context) + "</span>";
+    node.append(b);
+  });
+}
+
+function renderSubjectList() {
+  const node = $("subjectList");
+  const chips = $("thingsMode");
+  if (chips) {
+    chips.hidden = !subjects.length;
+    chips.querySelectorAll("[data-tmode]").forEach((b) =>
+      b.setAttribute("aria-pressed", String(b.dataset.tmode === thingsMode)));
+  }
   if (!subjects.length) {
     // Demonstrate the loop rather than describing it — what a "thing" is for only
     // makes sense once you see a note landing in its history.
@@ -2213,18 +2399,100 @@ async function loadSubjects() {
       "</div>";
     return;
   }
-  subjects.forEach((s) => {
-    const b = document.createElement("button");
-    b.className = "subj";
-    b.dataset.subjectId = s.id;
-    b.innerHTML =
-      (s.hero_url
-        ? '<img class="cover" src="' + esc(s.hero_url) + '" alt="" onerror="this.remove()">'
-        : '<span class="cover none"></span>') +
-      '<span class="nm">' + esc(s.name) + "</span>" +
-      '<span class="kind">' + esc(s.type) + " · " + esc(s.context) + "</span>";
-    node.append(b);
+  if (thingsMode === "tree") renderTree(node); else renderFlat(node);
+}
+
+async function loadSubjects() {
+  // Places come with it: they are the roots of the tree, and a tree drawn from a
+  // stale places list files things under names that have been renamed or removed.
+  try {
+    const [r] = await Promise.all([fetch("/api/subjects"), loadPlaces()]);
+    subjects = (await r.json()).subjects || [];
+  } catch {
+    $("subjectList").innerHTML = '<div class="empty">Offline — things need a connection.</div>';
+    return;
+  }
+  renderSubjectList();
+}
+
+/* Bound once, on a container that outlives every render. Registering inside the
+   render is what made one tap fire three uploads on the subject page. */
+$("thingsMode").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-tmode]");
+  if (!b || b.dataset.tmode === thingsMode) return;
+  thingsMode = b.dataset.tmode;
+  try { localStorage.setItem(TMODE_KEY, thingsMode); } catch {}
+  renderSubjectList();
+});
+
+$("subjectList").addEventListener("click", (e) => {
+  const tw = e.target.closest("[data-fold]");
+  if (!tw) return;
+  // The twisty sits inside the row, and the row opens the thing. Without this,
+  // collapsing a branch also navigates away from the screen you collapsed it on.
+  e.stopPropagation();
+  const id = tw.dataset.fold;
+  if (folded.has(id)) folded.delete(id); else folded.add(id);
+  saveFolded();
+  renderSubjectList();
+});
+
+// Tree rows are divs so they can hold the twisty button, so Enter and Space have to
+// be wired by hand — a real button would have given them for free.
+$("subjectList").addEventListener("keydown", (e) => {
+  if (e.key !== "Enter" && e.key !== " ") return;
+  const row = e.target.closest(".trow[data-subject-id]");
+  if (!row) return;
+  e.preventDefault();
+  openSubject(row.dataset.subjectId);
+});
+
+/* ---- picking where a thing lives ----
+   One select rather than two pickers: "in the yard" and "at home" are the same
+   answer to the same question, and asking twice invites saying both. The server
+   keeps only one of the two columns for exactly the same reason. */
+function homeValue(s) {
+  if (!s) return "";
+  if (s.parent_id) return "s:" + s.parent_id;
+  if (s.place_id) return "p:" + s.place_id;
+  return "";
+}
+
+function homePatch(value) {
+  if (!value) return { parent_id: null, place_id: null };
+  return value.slice(0, 2) === "p:"
+    ? { parent_id: null, place_id: value.slice(2) }
+    : { parent_id: value.slice(2), place_id: null };
+}
+
+/** Every place, with the things under it indented. `excludeId` drops a whole branch —
+    a thing cannot be moved inside itself or anything it already contains. */
+function homeOptions(selected, excludeId) {
+  const { kids, roots } = treeIndex();
+  const out = ['<option value="">— nowhere in particular —</option>'];
+  const pad = "   ";
+  const walk = (rows, depth) => {
+    rows.forEach((s) => {
+      if (s.id === excludeId) return;      // and everything under it, by not recursing
+      const v = "s:" + s.id;
+      out.push('<option value="' + esc(v) + '"' + (v === selected ? " selected" : "") + ">" +
+        pad.repeat(depth) + esc(s.name) + "</option>");
+      if (depth < 12) walk(kids.get(s.id) || [], depth + 1);
+    });
+  };
+  places.forEach((p) => {
+    const v = "p:" + p.id;
+    out.push('<option value="' + esc(v) + '"' + (v === selected ? " selected" : "") + ">" +
+      esc(p.name) + "</option>");
+    walk(roots.get(p.id) || [], 1);
   });
+  const loose = roots.get("") || [];
+  if (loose.length) {
+    out.push('<optgroup label="Not in a place">');
+    walk(loose, 0);
+    out.push("</optgroup>");
+  }
+  return out.join("");
 }
 
 document.addEventListener("click", (e) => {
@@ -2367,14 +2635,33 @@ function renderSubjectRead() {
         '<span class="what">' + esc(e.body || "(photo)") + "</span></button>").join("")
     : '<div class="empty">Nothing logged against this yet. Capture a note with it selected and it lands here.</div>';
 
+  // Where it sits. Standing in front of a sprinkler, "which yard is this one in"
+  // is the question the row itself cannot answer — and the crumbs are the way back
+  // up, since opening a child reuses this same overlay rather than stacking one.
+  const crumbs = (s.path || []).length
+    ? '<div class="crumbs">' + s.path.map((c) =>
+        c.kind === "subject"
+          ? '<button data-crumb="' + esc(c.id) + '">' + esc(c.name) + "</button>"
+          : esc(c.name)).join(" \u203a ") + " \u203a</div>"
+    : "";
+
+  const parts = (s.children || []).length
+    ? "<h2>Inside this</h2>" + s.children.map((k) =>
+        '<button class="subj" data-subject-id="' + esc(k.id) + '">' +
+        '<span class="cover none"></span>' +
+        '<span class="nm">' + esc(k.name) + "</span>" +
+        '<span class="kind">' + esc(k.type) + "</span></button>").join("")
+    : "";
+
   $("subjectBody").innerHTML =
-    photos +
+    photos + crumbs +
     '<div class="subjhead"><h1>' + esc(s.name) + "</h1>" +
       '<div class="badges"><span class="badge2">' + esc(s.type) + "</span>" +
       '<span class="badge2">' + esc(s.context) + "</span>" +
       (s.archived_at ? '<span class="badge2">archived</span>' : "") +
       '<span class="badge2">' + s.entries.length + " logged</span></div></div>" +
     '<div class="spec">' + rows + "</div>" +
+    parts +
     (s.files && s.files.length ? "<h2>Files</h2>" + fileList(s.files, true) : "") +
     '<div class="actions">' +
       '<button class="btn sm" id="noteAgainst">+ Note</button>' +
@@ -2383,6 +2670,9 @@ function renderSubjectRead() {
     "<h2>History</h2>" + history;
 
   $("editSubject").addEventListener("click", () => { editing = true; renderSubject(); });
+
+  $("subjectBody").querySelectorAll("[data-crumb]").forEach((b) =>
+    b.addEventListener("click", () => openSubject(b.dataset.crumb)));
 
   /* Attaching to a thing uploads straight away rather than queueing.
      The offline guarantee in §6 is about capture -- a note must never be lost
@@ -2428,6 +2718,11 @@ function renderSubjectEdit() {
         '<button class="chip" data-subj-ctx="' + c + '" aria-pressed="' + (s.context === c) + '">' +
         c[0].toUpperCase() + c.slice(1) + "</button>").join("") +
     "</div>" +
+    "<h2>Where does it live?</h2>" +
+    '<select id="subjHome" style="width:100%;border:1px solid var(--line);border-radius:8px;' +
+      'background:var(--card);color:var(--ink);padding:11px;font:400 15px var(--font-ui);' +
+      'margin-bottom:6px">' + homeOptions(homeValue(s), s.id) + "</select>" +
+    '<p class="empty" style="padding-top:0">Moving it brings whatever is inside it along.</p>' +
     "<h2>Details</h2><div id=\"attrs\">" + rows + "</div>" +
     '<button class="btn ghost sm" id="addAttr" style="margin-bottom:12px">+ Add field</button>' +
     '<div class="actions">' +
@@ -2495,6 +2790,10 @@ async function saveSubject() {
         name: $("subjName").value.trim() || currentSubject.name,
         context: currentSubject.context,
         attributes,
+        // Both keys go every time, nulls included: null is how a thing is moved
+        // back out to the top level, so omitting them would make "nowhere in
+        // particular" the one choice that could not be saved.
+        ...homePatch($("subjHome").value),
       }),
     });
     if (!r.ok) throw new Error();
@@ -2744,6 +3043,10 @@ $("addSubject").addEventListener("click", async () => {
   await loadTemplates();
   newCtx = context;                      // whatever you are capturing in right now
   $("newName").value = "";
+  // Default to where you are. Adding a thing almost always happens standing in
+  // front of it, so the place already chosen on the capture screen is the answer
+  // more often than "nowhere" is — and it is one tap to change.
+  $("newHome").innerHTML = homeOptions(herePlace ? "p:" + herePlace.id : "", null);
   paintNewPickers();
   openOverlay("addThing");
   $("newName").focus();
@@ -2774,7 +3077,7 @@ $("createThing").addEventListener("click", async () => {
   try {
     const r = await fetch("/api/subjects", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name, type: newType, context: newCtx }),
+      body: JSON.stringify({ name, type: newType, context: newCtx, ...homePatch($("newHome").value) }),
     });
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || "failed");
@@ -3486,11 +3789,12 @@ setInterval(() => { if (navigator.onLine) flush(); }, 30000);
   checkVersion();
   loadRecent();
   loadOpenCount();
-  loadSubjects();          // also paints the capture screen's subject chips
+  // loadSubjects fetches places too — the tree is filed under them — so the place
+  // suggestion hangs off it rather than firing a second request for the same rows.
+  loadSubjects().then(suggestPlace);   // also paints the capture screen's subject chips
   $("thumb").hidden = false;
   document.body.classList.add("capturing");
   history.replaceState({ view: "capture" }, "");
-  loadPlaces().then(suggestPlace);
   flush();
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/sw.js").catch(() => {});

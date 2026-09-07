@@ -13,7 +13,7 @@
 
 import { Hono } from "hono";
 import type { Env } from "./env";
-import { BadContext, Db, VersionConflict } from "./db";
+import { BadContext, BadParent, Db, VersionConflict } from "./db";
 import { fileKey, photoKey } from "./ids";
 import { VERSION } from "./version";
 import { authenticate, AuthError, type Session } from "./auth";
@@ -129,6 +129,9 @@ app.onError((err, c) => {
   // Caller's mistake, not a fault — and answered the same way whichever route,
   // import row or MCP tool set it.
   if (err instanceof BadContext) return c.json({ error: err.message }, 400);
+  // Same shape: asking to put a thing inside itself, or inside something that is
+  // not there, is a bad request rather than a broken server.
+  if (err instanceof BadParent) return c.json({ error: err.message }, 400);
   console.error(err);
   return c.json({ error: "Something went wrong" }, 500);
 });
@@ -447,7 +450,13 @@ app.post("/api/subjects", async (c) => {
   if (!context) return c.json({ error: "context is required" }, 400);
 
   const db = c.get("db");
-  const { id } = await db.createSubject({ name, type, context });
+  const { id } = await db.createSubject({
+    name, type, context,
+    // Where it lives. At most one is kept; db.ts decides which and refuses a
+    // parent that is missing, someone else's, or the thing itself.
+    parent_id: typeof body.parent_id === "string" && body.parent_id ? body.parent_id : null,
+    place_id: typeof body.place_id === "string" && body.place_id ? body.place_id : null,
+  });
   if (Array.isArray(body.attributes)) {
     await db.setAttributes(id, body.attributes as never);
   }
@@ -536,6 +545,19 @@ app.patch("/api/subjects/:id", async (c) => {
     patch.hero_photo_id = body.hero_photo_id;
   }
   if (Object.keys(patch).length) await db.updateSubject(id, patch);
+
+  // Moving a thing goes through setHome rather than the patch loop above: the two
+  // columns are mutually exclusive and a parent has to be checked for cycles, and
+  // neither rule survives being expressed as "UPDATE whatever was sent". null is
+  // meaningful here too — it is how a thing is moved back out to the top level.
+  const movingParent = body.parent_id === null || typeof body.parent_id === "string";
+  const movingPlace = body.place_id === null || typeof body.place_id === "string";
+  if (movingParent || movingPlace) {
+    await db.setHome(id, {
+      parent_id: movingParent ? (body.parent_id as string | null) || null : null,
+      place_id: movingPlace ? (body.place_id as string | null) || null : null,
+    });
+  }
 
   const detail = await db.subjectDetail(id);
   if (!detail) return c.json({ error: "No such subject" }, 404);

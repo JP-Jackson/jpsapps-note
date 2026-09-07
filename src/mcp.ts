@@ -106,6 +106,12 @@ const TOOLS = [
         type: { type: "string", enum: ["equipment", "vehicle", "generic"] },
         context: { type: "string", enum: ["work", "home"] },
         attributes: { type: "object", description: 'e.g. {"Make": "Ingersoll Rand"}' },
+        inside: {
+          type: "string",
+          description:
+            "Name of a place or another thing this lives in, e.g. 'Yard'. Things nest: " +
+            "Home > Yard > Front sprinkler.",
+        },
       },
       required: ["name", "context"],
     },
@@ -201,11 +207,28 @@ async function callTool(db: Db, name: string, args: Json): Promise<{ content: un
 
     case "list_things": {
       const rows = await db.listSubjects();
-      return text(
-        rows.length
-          ? rows.map((s) => `${s.name} — ${s.type}, ${s.context}`).join("\n")
-          : "Nothing tracked yet.",
-      );
+      if (!rows.length) return text("Nothing tracked yet.");
+      // Things nest now, so a flat list of names loses the one fact that separates
+      // the rental's air conditioner from the house's. Resolved once here from the
+      // rows already fetched, rather than a query per thing.
+      const places = await db.listPlaces();
+      const byId = new Map(rows.map((s) => [s.id, s]));
+      const placeName = new Map(places.map((p) => [p.id, p.name]));
+      const pathOf = (s: SubjectRow): string => {
+        const above: string[] = [];
+        let at = s.parent_id ? byId.get(s.parent_id) : undefined;
+        for (let i = 0; at && i < 32; i++) {
+          above.unshift(at.name);
+          at = at.parent_id ? byId.get(at.parent_id) : undefined;
+        }
+        // The root's place, if it has one, heads the path.
+        let root: SubjectRow | undefined = s;
+        for (let i = 0; root?.parent_id && i < 32; i++) root = byId.get(root.parent_id);
+        const place = root?.place_id ? placeName.get(root.place_id) : undefined;
+        if (place) above.unshift(place);
+        return above.length ? above.join(" > ") + " > " : "";
+      };
+      return text(rows.map((s) => `${pathOf(s)}${s.name} — ${s.type}, ${s.context}`).join("\n"));
     }
 
     case "get_thing": {
@@ -217,8 +240,12 @@ async function callTool(db: Db, name: string, args: Json): Promise<{ content: un
       const attrs = d.attributes.length
         ? d.attributes.map((a) => `  ${a.key}: ${a.value ?? "—"}`).join("\n")
         : "  (nothing recorded)";
+      const lives = d.path.length ? `Lives in: ${d.path.map((c) => c.name).join(" > ")}\n` : "";
+      const parts = d.children.length
+        ? `\nParts (${d.children.length}):\n${d.children.map((k) => `  ${k.name}`).join("\n")}\n`
+        : "";
       return text(
-        `${d.name} — ${d.type}, ${d.context}\n\nDetails:\n${attrs}\n\n` +
+        `${d.name} — ${d.type}, ${d.context}\n${lives}${parts}\nDetails:\n${attrs}\n\n` +
           `History (${d.entries.length}):\n${listNotes(d.entries)}`,
       );
     }
@@ -227,10 +254,29 @@ async function callTool(db: Db, name: string, args: Json): Promise<{ content: un
       const name = String(args.name ?? "").trim();
       const context = String(args.context ?? "").trim();
       if (!name || !context) return problem("A thing needs a name and a context.");
+      // "inside" is one word from Claude and could mean either kind of container,
+      // so both are searched. A thing wins a tie: a place named Yard and a thing
+      // named Yard is a naming problem the user already has, and putting the
+      // sprinkler under the thing keeps the branch they built intact.
+      let parentId: string | null = null;
+      let placeId: string | null = null;
+      const inside = String(args.inside ?? "").trim();
+      if (inside) {
+        const found = await findThing(db, inside);
+        if (found.thing) parentId = found.thing.id;
+        else {
+          const place = (await db.listPlaces())
+            .find((p) => p.name.toLowerCase() === inside.toLowerCase());
+          if (place) placeId = place.id;
+          else return problem(`Nothing called "${inside}" to put it in.`);
+        }
+      }
       const made = await db.createSubject({
         name,
         type: String(args.type ?? "generic"),
         context,
+        parent_id: parentId,
+        place_id: placeId,
       });
       const attrs = (args.attributes ?? {}) as Record<string, unknown>;
       const list = Object.entries(attrs).map(([key, value], i) => ({
@@ -243,6 +289,7 @@ async function callTool(db: Db, name: string, args: Json): Promise<{ content: un
       // whenever a context or type was normalised on the way in.
       return text(
         `Added "${name}" (${made.type}, ${made.context})` +
+          `${inside ? ` inside ${inside}` : ""}` +
           `${list.length ? ` with ${list.length} field${list.length === 1 ? "" : "s"}` : ""}.`,
       );
     }

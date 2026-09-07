@@ -1,6 +1,6 @@
 # Note — handoff
 
-Written 7 Sep 2026, at **v1.18.0**. `NOTE_SPEC.md` is the authority: where it states a
+Written 7 Sep 2026, at **v1.19.0**. `NOTE_SPEC.md` is the authority: where it states a
 decision and a reason, follow it rather than substituting a different approach.
 
 ## Where things stand
@@ -18,7 +18,8 @@ Phases 1–6 of §11 are built and deployed. Every push to `main` deploys automa
 | MCP connector | `https://note.jpsapps.com/mcp` — connected, 7 tools |
 | Account | jpsappshq@gmail.com — `bf9f771dae485c448a5740c54ca5771d` |
 
-Migrations applied: `0001_init`, `0002_subjects`, `0003_oauth`. Secrets: `OAUTH_SECRET`.
+Migrations applied: `0001_init`, `0002_subjects`, `0003_oauth`, `0004_hierarchy`.
+Secrets: `OAUTH_SECRET`.
 
 ## Two rules that must not be relaxed
 
@@ -51,6 +52,26 @@ Migrations applied: `0001_init`, `0002_subjects`, `0003_oauth`. Secrets: `OAUTH_
 - **Install flow.** Settings and the capture screen offer it; iPhone gets written
   steps because Apple has no `beforeinstallprompt`.
 - **Usage bars**, **cover photos**, **post-save linking**, **capture from a thing**.
+- **Hierarchy for things** (v1.19.0). `subjects.parent_id` and `subjects.place_id`,
+  one additive migration, places as the roots — the model this file proposed. Things
+  nest to any depth; the Things tab draws the tree with foldable branches and keeps
+  the flat list behind a toggle. Decisions worth not re-arguing:
+  - **Only one of the two columns is ever set.** A child inherits its place from its
+    root, so writing the place on every descendant would be a second copy of the same
+    fact and the copy is what goes stale the first time a branch moves. `setHome` in
+    `db.ts` enforces it; sending both keeps the parent.
+  - **Deleting a thing promotes its children** into whatever it was inside, rather
+    than cascading. A confirm that names one thing must not delete four.
+  - **Deleting a place** leaves the things that were rooted there and only unfiles
+    them — the same reasoning as entries keeping their coordinates.
+  - **Cycles are refused server-side** by walking up from the proposed parent, and
+    the client never offers a thing its own branch. The tree renderer also has a
+    depth guard: a corrupt row should not hang the tab.
+  - **The tree is assembled on the client** from the one flat `/api/subjects`
+    response. No recursive CTE — at this scale it would be a second way to be wrong
+    about the same shape.
+  - The capture payoff is in: after saving, things that live where you are rank
+    second, behind a thing the note actually names. Evidence beats geography.
 
 ## What is left
 
@@ -59,12 +80,6 @@ reference tools, **10** export and Synology backup.
 
 Also outstanding:
 
-- **Hierarchy for things.** JP wants `Home → Yard → Front sprinkler` and
-  `Rental → Air conditioner`, with a tree view. Things are flat today; only activities
-  nest. Proposed model: `subjects.parent_id` plus `subjects.place_id`, so places are
-  the tree roots and things nest under a place and under each other. One additive
-  migration. The payoff beyond browsing is that capture at a place can offer only the
-  things that live there.
 - **Photos attached via the paperclip are not compressed.** The in-app camera does
   1600px/q80 per §5; the file-attach path uploads the original. A phone photo is
   ~1.5 MB against a 10 GB bucket.
@@ -80,8 +95,8 @@ Also outstanding:
 
 ## Things that cost time, so they are written down
 
-- **The tests are the reason most bugs were found.** `npm run test:ui` — 137
-  assertions, eight files, all honouring `NOTE_URL`. They are not in CI because they
+- **The tests are the reason most bugs were found.** `npm run test:ui` — 175
+  assertions, nine files, all honouring `NOTE_URL`. They are not in CI because they
   need a live dev server. Almost every bug this session was invisible from reading the
   code: a `history.back()` race, delegated listeners stacking on a container that
   outlives its render, an `onerror` handler quietly removing the photos a test was
@@ -103,6 +118,11 @@ Also outstanding:
 
 - §4's schema omitted `user_id` on `entry_subjects` and `subject_attributes`,
   contradicting its own rule. Added.
+- §4 has no hierarchy for subjects at all — only `activities.parent_id`. Added in
+  0004 along the lines this file proposed, and for the same reason §4 gives for
+  activities: the column permits any depth for free. Unlike activities, the interface
+  here does surface every level, because "which yard is this sprinkler in" is the
+  question a flat list of forty things cannot answer.
 - §4 lists `'work' | 'home' | 'vehicles'` as contexts, but §7 makes context the
   *sharing* boundary — and vehicles is not one. Contexts are **work and home**; a work
   truck is Work and a personal car is Home. Filtering to vehicles is answered by

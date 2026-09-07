@@ -112,6 +112,17 @@ export interface SubjectRow {
   hero_photo_id: string | null;
   created_at: number;
   archived_at: number | null;
+  /** Where it lives. At most one is ever set — see `setHome`. */
+  parent_id: string | null;
+  place_id: string | null;
+}
+
+/** One step of the path down to a thing, root first: 'Home' → 'Yard'. */
+export interface Crumb {
+  id: string;
+  name: string;
+  /** 'place' for the root of the tree, 'subject' for every step below it. */
+  kind: "place" | "subject";
 }
 
 export interface AttributeRow {
@@ -131,6 +142,10 @@ export interface SubjectDetail extends SubjectRow {
   attributes: AttributeRow[];
   entries: EntryRow[];
   attachments: AttachmentRow[];
+  /** The path down to it, root first, excluding itself. Empty for a root thing. */
+  path: Crumb[];
+  /** What lives directly under it — its parts. */
+  children: SubjectRow[];
 }
 
 export interface PlaceRow {
@@ -146,7 +161,17 @@ export interface NewSubject {
   name: string;
   type: string;
   context: string;
+  parent_id?: string | null;
+  place_id?: string | null;
 }
+
+/** Where a thing lives. Passing both is a caller error; `setHome` keeps only one. */
+export interface Home {
+  parent_id?: string | null;
+  place_id?: string | null;
+}
+
+export class BadParent extends Error {}
 
 export interface ActivityRow {
   id: string;
@@ -769,7 +794,23 @@ export class Db {
         .bind(id, this.userId),
     );
 
+    // Deleting the yard must not delete the sprinkler. Children are promoted into
+    // whatever this thing was inside — its parent, or its place if it was a root —
+    // so the branch stays in the tree instead of disappearing with it. A cascade
+    // here would be a delete of unknown size behind a confirm that named one thing.
+    const home = await this.first<{ parent_id: string | null; place_id: string | null }>(
+      this.d1.prepare("SELECT parent_id, place_id FROM subjects WHERE id = ? AND user_id = ?")
+        .bind(id, this.userId),
+    );
+
     const res = await this.d1.batch([
+      this.d1
+        .prepare(
+          `UPDATE subjects SET parent_id = ?, place_id = ?
+            WHERE parent_id = ? AND user_id = ?`,
+        )
+        .bind(home?.parent_id ?? null, home?.parent_id ? null : home?.place_id ?? null,
+              id, this.userId),
       this.d1
         .prepare("UPDATE subjects SET hero_photo_id = NULL WHERE id = ? AND user_id = ?")
         .bind(id, this.userId),
@@ -914,10 +955,18 @@ export class Db {
       this.d1
         .prepare("UPDATE entries SET place_id = NULL WHERE user_id = ? AND place_id = ?")
         .bind(this.userId, id),
+      // Things rooted here become top-level rather than vanishing with the place —
+      // same reasoning as the entries above. The mower still exists; the yard it
+      // was in just stopped having a name.
+      this.d1
+        .prepare("UPDATE subjects SET place_id = NULL WHERE user_id = ? AND place_id = ?")
+        .bind(this.userId, id),
       this.d1.prepare("DELETE FROM places WHERE id = ? AND user_id = ?").bind(id, this.userId),
     ]);
     res.forEach((r) => readMeta(this.meter, r.meta));
-    return (res[1]?.meta?.changes ?? 0) > 0;
+    // The DELETE is last; index it from the end so adding another cleanup above it
+    // cannot silently start reporting the wrong statement's row count.
+    return (res[res.length - 1]?.meta?.changes ?? 0) > 0;
   }
 
   async renamePlace(id: string, name: string): Promise<boolean> {
@@ -975,7 +1024,8 @@ export class Db {
       this.d1
         .prepare(
           `SELECT s.id, s.name, s.type, s.context, s.visibility, s.hero_photo_id,
-                  s.created_at, s.archived_at, a.r2_key AS hero_key
+                  s.created_at, s.archived_at, s.parent_id, s.place_id,
+                  a.r2_key AS hero_key
              FROM subjects s
              LEFT JOIN attachments a ON a.id = s.hero_photo_id AND a.user_id = s.user_id
             WHERE s.user_id = ?` +
@@ -993,15 +1043,124 @@ export class Db {
     const id = newId();
     const context = normaliseContext(sub.context);
     const type = normaliseType(sub.type);
+    // A brand new row has no descendants, so there is no cycle to guard against —
+    // but the same "only one home" rule applies, and the parent still has to exist
+    // and still has to be yours.
+    const home = await this.resolveHome(id, {
+      parent_id: sub.parent_id ?? null,
+      place_id: sub.place_id ?? null,
+    });
     await this.run(
       this.d1
         .prepare(
-          `INSERT INTO subjects (id, user_id, name, type, context, visibility, created_at)
-           VALUES (?, ?, ?, ?, ?, 'private', ?)`,
+          `INSERT INTO subjects
+             (id, user_id, name, type, context, visibility, created_at, parent_id, place_id)
+           VALUES (?, ?, ?, ?, ?, 'private', ?, ?, ?)`,
         )
-        .bind(id, this.userId, sub.name.trim(), type, context, Date.now()),
+        .bind(id, this.userId, sub.name.trim(), type, context, Date.now(),
+              home.parent_id, home.place_id),
     );
     return { id, type, context };
+  }
+
+  // ------------------------------------------------------- where a thing lives
+  //
+  // Home → Yard → Front sprinkler. Places are the roots (§4 already says where
+  // things happen), subjects nest under a place and under each other.
+  //
+  // The tree is read by fetching every subject once and assembling it on the
+  // client, so nothing here needs a recursive query: at this scale a hundred rows
+  // is one cheap read, and a recursive CTE would be a second way to be wrong about
+  // the same shape.
+
+  /**
+   * Decide what to store for "where does this live", and refuse the impossible.
+   *
+   * Exactly one of the two is kept. A subject with a parent inherits the parent's
+   * place, so writing both would create a second copy of the same fact — and the
+   * copy is the one that goes stale the first time a branch is moved.
+   */
+  private async resolveHome(id: string, home: Home): Promise<{ parent_id: string | null; place_id: string | null }> {
+    const parent = home.parent_id ?? null;
+    if (parent) {
+      if (parent === id) throw new BadParent("A thing cannot be inside itself.");
+      const ok = await this.first<{ n: number }>(
+        this.d1.prepare("SELECT 1 AS n FROM subjects WHERE id = ? AND user_id = ?")
+          .bind(parent, this.userId),
+      );
+      if (!ok) throw new BadParent("No such thing to put it in.");
+      // Walking up from the proposed parent is the whole cycle check: if this row
+      // is already above it, the move would close a loop and the tree screen would
+      // recurse forever. Cheap because the chain is a handful of rows deep.
+      const chain = await this.ancestorIds(parent);
+      if (chain.includes(id)) throw new BadParent("That would put a thing inside itself.");
+      return { parent_id: parent, place_id: null };
+    }
+    const place = home.place_id ?? null;
+    if (place) {
+      const ok = await this.first<{ n: number }>(
+        this.d1.prepare("SELECT 1 AS n FROM places WHERE id = ? AND user_id = ?")
+          .bind(place, this.userId),
+      );
+      if (!ok) throw new BadParent("No such place.");
+    }
+    return { parent_id: null, place_id: place };
+  }
+
+  /** Ids from `id` up to the root, `id` first. Bounded so a loop cannot hang a request. */
+  private async ancestorIds(id: string): Promise<string[]> {
+    const seen: string[] = [];
+    let at: string | null = id;
+    for (let i = 0; at && i < 32; i++) {
+      if (seen.includes(at)) break;
+      seen.push(at);
+      const row: { parent_id: string | null } | null = await this.first<{ parent_id: string | null }>(
+        this.d1.prepare("SELECT parent_id FROM subjects WHERE id = ? AND user_id = ?")
+          .bind(at, this.userId),
+      );
+      at = row?.parent_id ?? null;
+    }
+    return seen;
+  }
+
+  /** Move a thing: under another thing, into a place, or out to the top level. */
+  async setHome(id: string, home: Home): Promise<void> {
+    const resolved = await this.resolveHome(id, home);
+    await this.run(
+      this.d1
+        .prepare("UPDATE subjects SET parent_id = ?, place_id = ? WHERE id = ? AND user_id = ?")
+        .bind(resolved.parent_id, resolved.place_id, id, this.userId),
+    );
+  }
+
+  /** The path down to a thing, root first, excluding itself. */
+  async subjectPath(id: string): Promise<Crumb[]> {
+    const chain = await this.ancestorIds(id);
+    const above = chain.slice(1);           // skip the thing itself
+    const crumbs: Crumb[] = [];
+    for (const aid of above) {
+      const row = await this.first<{ name: string }>(
+        this.d1.prepare("SELECT name FROM subjects WHERE id = ? AND user_id = ?")
+          .bind(aid, this.userId),
+      );
+      if (row) crumbs.push({ id: aid, name: row.name, kind: "subject" });
+    }
+    // The root's place, if it has one, is the first crumb of all.
+    const rootId = chain[chain.length - 1];
+    if (rootId) {
+      const root = await this.first<{ place_id: string | null }>(
+        this.d1.prepare("SELECT place_id FROM subjects WHERE id = ? AND user_id = ?")
+          .bind(rootId, this.userId),
+      );
+      if (root?.place_id) {
+        const place = await this.first<{ name: string }>(
+          this.d1.prepare("SELECT name FROM places WHERE id = ? AND user_id = ?")
+            .bind(root.place_id, this.userId),
+        );
+        if (place) crumbs.push({ id: root.place_id, name: place.name, kind: "place" });
+      }
+    }
+    return crumbs.reverse();
   }
 
   /**
@@ -1014,7 +1173,8 @@ export class Db {
     const row = await this.first<SubjectRow>(
       this.d1
         .prepare(
-          `SELECT id, name, type, context, visibility, hero_photo_id, created_at, archived_at
+          `SELECT id, name, type, context, visibility, hero_photo_id, created_at,
+                  archived_at, parent_id, place_id
              FROM subjects WHERE id = ? AND user_id = ?`,
         )
         .bind(id, this.userId),
@@ -1054,7 +1214,23 @@ export class Db {
         .bind(id, this.userId),
     );
 
-    return { ...row, attributes, entries, attachments };
+    // Where it sits in the tree. Both are on the detail page because standing in
+    // front of a thing, "which yard is this sprinkler in" and "what is on this
+    // manifold" are the two questions the page cannot answer from its own row.
+    const path = await this.subjectPath(id);
+    const children = await this.all<SubjectRow>(
+      this.d1
+        .prepare(
+          `SELECT id, name, type, context, visibility, hero_photo_id, created_at,
+                  archived_at, parent_id, place_id
+             FROM subjects
+            WHERE parent_id = ? AND user_id = ? AND archived_at IS NULL
+            ORDER BY name COLLATE NOCASE`,
+        )
+        .bind(id, this.userId),
+    );
+
+    return { ...row, attributes, entries, attachments, path, children };
   }
 
   /**
@@ -1141,7 +1317,7 @@ export class Db {
       this.d1
         .prepare(
           `SELECT s.id, s.name, s.type, s.context, s.visibility, s.hero_photo_id,
-                  s.created_at, s.archived_at
+                  s.created_at, s.archived_at, s.parent_id, s.place_id
              FROM subjects s
              JOIN entry_subjects es ON es.subject_id = s.id
             WHERE es.entry_id = ? AND s.user_id = ?

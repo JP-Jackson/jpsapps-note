@@ -97,7 +97,7 @@ Access: Apps and Policies, which a CI job has no business holding.
     public/
       index.html  the whole client — markup, styles and script in one file
       sw.js       service worker: offline shell only, never the API
-    migrations/   0001 init, 0002 subjects, 0003 oauth
+    migrations/   0001 init, 0002 subjects, 0003 oauth, 0004 hierarchy
     scripts/      version stamping, icon generation
     tests/        browser tests, run by hand against a dev server
 

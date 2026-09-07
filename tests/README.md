@@ -17,15 +17,25 @@ row" — a leftover row from an earlier run should never make a correct app look
 broken. Several hours were lost to exactly that before the rule was adopted.
 
 They drive the real app in Chromium: contexts, the post-save link bar and its
-ranking, capture-from-a-thing, the back stack, and both offline branches (a link
-folded into a still-queued entry, and one queued separately for an entry that has
-already synced).
+ranking, capture-from-a-thing, the back stack, the tree of things, and both offline
+branches (a link folded into a still-queued entry, and one queued separately for an
+entry that has already synced).
+
+`hierarchy.mjs` is the reason the "no empty database" rule keeps earning itself: the
+tree is drawn from every subject the account holds, so it creates its own place per
+run and asks the API which things actually live there rather than assuming the five
+chips it can see are the only candidates.
 
 They write to the **local** D1, never `--remote`. Clear it first if a previous run
 left things behind:
 
     npx wrangler d1 execute note --local --command \
       "DELETE FROM entry_subjects; DELETE FROM entries; DELETE FROM subject_attributes; DELETE FROM subjects;"
+
+`attachments.mjs` needs three fixtures in /tmp/fx: `IR-2475-manual.pdf`, `points.csv`
+and `b44-log.html`. The HTML one must contain a literal `<script>` in its first forty
+bytes — the test asserts the file comes back untouched and inert only because it is
+served as a download.
 
 Every bug these caught was invisible from reading the code: a `history.back()` race
 that left a stack entry matching nothing on screen, an overlay that was never

@@ -3,6 +3,14 @@
 Mirrors the list shown in Settings. One line per release — enough to answer
 "did the thing I asked for actually ship", not full release notes.
 
+## 1.19.0
+Things nest. **Home → Yard → Front sprinkler**, **Rental → Air conditioner** — places
+are the roots and things go under a place and under each other. The Things tab draws
+the tree, with branches that fold and a flat list still one tap away. A thing's page
+shows the path down to it and what is inside it, and either can be moved from the
+edit screen. Deleting a thing promotes whatever was inside it instead of taking it
+along. After saving a note, the things that live where you are are offered first.
+
 ## 1.18.0
 Places are chosen, not only detected. The chip is always there and opens a list of
 every place with a way to add one where you are standing, so a job written up after
