@@ -1,7 +1,12 @@
 # Note — handoff
 
 Written 7 Sep 2026, at **v1.22.0**. `NOTE_SPEC.md` is the authority: where it states a
-decision and a reason, follow it rather than substituting a different approach.
+decision and a reason, follow it rather than substituting a different approach. This
+file records where the spec was overruled and why.
+
+**Start here: “The plan, in order”.** Section 1 is done and deployed. **Section 2,
+things offline, is the next job** — read it, then “Getting a session running” at the
+bottom before writing anything.
 
 ## Where things stand
 
@@ -21,11 +26,13 @@ Phases 1–6 of §11 are built and deployed. Every push to `main` deploys automa
 Migrations applied: `0001_init`, `0002_subjects`, `0003_oauth`, `0004_hierarchy`.
 Secrets: `OAUTH_SECRET`.
 
-**Live data, as of v1.21.0.** Three things exist and nest: `Yard` → `Front sprinkler`,
+**Live data, as of v1.22.0.** Three things exist and nest: `Yard` → `Front sprinkler`,
 plus a loose `Air conditioner`. The places `Home` and `Rental` do **not** exist yet —
 they need coordinates, and neither the MCP connector nor a sandboxed session can
 create a place. JP adds those two from the map picker, then drags the two things into
-them. Do not invent coordinates for him.
+them. **Do not invent coordinates for him.** A pin dropped roughly right is now
+correctable in the app rather than needing a delete, so “near enough, fix it later”
+is a real option for him — but it is still his pin to drop.
 
 ## Two rules that must not be relaxed
 
@@ -78,6 +85,10 @@ them. Do not invent coordinates for him.
     about the same shape.
   - The capture payoff is in: after saving, things that live where you are rank
     second, behind a thing the note actually names. Evidence beats geography.
+- **Correcting a place** (v1.22.0). The pencil on a place row reopens the map on that
+  place to rename it, move the pin or change the radius, instead of the old
+  delete-and-recreate that took the filing with it. Detail under **Section 1, as
+  shipped in 1.22.0** below.
 - **Dragging the tree** (v1.21.0). Press-and-hold a row and drop it on a thing, a
   place heading, or "Not in a place". A `+` on every row and heading opens the Add
   screen already filed. Two things here were invisible from the code and only showed
@@ -132,10 +143,10 @@ Also outstanding:
   on `users`.
 - `actions/checkout@v4` and `setup-node@v4` are on a deprecated Node.
 
-## Known defects
+## Section 1, as shipped in 1.22.0
 
-The four places-layer defects found on 7 Sep are **fixed in 1.22.0** — that was
-section 1 of the plan. What shipped, and the parts worth not re-deriving:
+The four places-layer defects found while planning the offline work. All fixed. The
+parts worth not re-deriving:
 
 - **Creating a place failed silently with no signal.** Both `addPlaceHere` and the
   map picker's `mapSave` did a bare `fetch` with no `try`/`catch`; offline a fetch
@@ -166,6 +177,17 @@ section 1 of the plan. What shipped, and the parts worth not re-deriving:
 path: a thing rooted at a place and a note naming it both survive a rename plus a
 re-pin. It also drives the offline branches through `context.setOffline`.
 
+One decision in this that the spec does not cover, so it is written down rather than
+re-argued: **editing a place does not re-claim nearby entries.** `createPlace` still
+does, because naming a spot should explain the captures already made there. Moving
+the pin afterwards is a correction to a place that already has a history, and
+sweeping in whatever happens to sit near the new coordinates would rewrite that
+history as a side effect of a typo fix.
+
+## Known defects
+
+None open in the places layer. The rest of the list lives under **What is left**.
+
 ## The plan, in order
 
 Agreed with JP on 7 Sep, after v1.21.0. Reasons are written down so this is not
@@ -176,7 +198,7 @@ re-argued from scratch.
 The defects above. First not because it was the most valuable work but because the
 delete-and-recreate path was destroying data. See **Known defects** for what shipped.
 
-### 2. Things offline — the real job
+### 2. Things offline — the real job, and the next thing to build
 
 **JP loses signal at the rental. Confirmed, not hypothetical.** §6 says offline is
 not optional, and §8d's entire justification for the thing page is standing in front
@@ -210,6 +232,37 @@ one place that matters most.
 - **Photos are out of scope for round one.** Covers come from `img.jpsapps.com`, a
   different origin the service worker deliberately ignores. Text and attributes work;
   images fall back to their placeholder.
+
+**Where the code already is**, so this is not re-discovered:
+
+- `loadSubjects()` in `public/index.html` is the failure to replace. Its `catch`
+  writes *“Offline — things need a connection”* into `#subjectList`; a thing's own
+  page writes *“Could not load that.”* into `#subjectBody`. Those two strings are the
+  whole of the current offline story for things.
+- **IndexedDB is already open and already versioned.** `DB_NAME = "note"` at version
+  **2**, with stores `queue` (queued entries, keyPath `id`) and `links` (queued
+  entry-to-thing links). A snapshot store means version **3** and a new branch in the
+  existing upgrade handler — do not open a second database.
+- **`flush()` has an ordering discipline to extend, not invent.** Today it is:
+  entries, then each entry's photo and files, then links — links last so one queued
+  alongside its own entry lands second. A queued **place must go first**, before
+  entries, or a note pointing at it flushes onto an id the server has never seen.
+  That is the trap in this piece of work, and it fails silently.
+- Each record is deleted from its store only once **every** part of it is up. Keep
+  that: a half-flushed record that has been forgotten is a lost capture.
+- `flush()` reloads the page on 401/403 rather than dropping the queue, because the
+  Access session lapsing must never cost a capture. A queued place has to survive
+  that reload the same way.
+- `loadPlaces()` caches to `localStorage` under `note.places` and falls back to it.
+  The snapshot supersedes that path; do not leave two caches of the same list
+  disagreeing with each other.
+- **The snapshot does not belong in the service worker.** `sw.js` caches the shell
+  only and never an API response, and says why: a cached `/api/entries` is a lie, and
+  a capture tool that lies about what synced is worse than one that says offline.
+  Same rule — the snapshot lives in IndexedDB, where it can carry its own timestamp
+  and be labelled as a snapshot on screen.
+- The places layer's `savePlace()` helper is the shape to copy for the queued-place
+  write: it returns `{ok, why, offline}` and never throws.
 
 ### 3. The tree is the spine
 
@@ -258,6 +311,39 @@ features is how this gets messy.
 - **The sandbox cannot reach `note.jpsapps.com`.** The egress proxy allows
   `api.cloudflare.com` and GitHub, not the app. Verify live behaviour through the MCP
   connector, the Cloudflare API, or ask JP.
+- **An overlay covers, it does not hide — and that catches the tests too.** The same
+  trap as the fixed nav, one level up: saving from the map closes `#mapPick` and
+  leaves `#places` open underneath, so a test that taps `#placeChip` again aims at an
+  element the open overlay covers. Playwright retries for thirty seconds and then
+  fails with nothing wrong in the app. Helpers that open an overlay must be
+  idempotent — check `isVisible` first.
+- **One dialog listener, not two.** Playwright hands a dialog to the first listener
+  registered, so a `page.once("dialog", …)` added later to dismiss one specific
+  confirm never runs — the standing `page.on("dialog", …)` has already accepted it,
+  and the `once` handler then throws *“Cannot dismiss dialog which is already
+  handled”*. `placesedit.mjs` uses one handler and a `dismissNext` flag.
+- **`SELECT` lists are not audited by TypeScript** — see above — and the same is true
+  of what the *client* reads off a row. `listPlaces` gained a `things` count for the
+  delete confirm; anything else that needs a derived field needs it added there too.
+
+## Getting a session running
+
+A fresh sandbox is not ready to run the tests. Four steps, in order:
+
+1. `npm install` — `node_modules` is not checked in, and without it `wrangler dev`
+   fails to bundle with *“Could not resolve hono”* and then serves nothing, which
+   looks like a hung server rather than a build error. Read the dev log, not the
+   symptom.
+2. `cp .dev.vars.example .dev.vars` — there is no Access in front of `wrangler dev`,
+   so `DEV_EMAIL` stands in for the verified identity.
+3. `npx wrangler d1 migrations apply note --local`, then start the server:
+   `npx wrangler dev --port 8787`.
+4. `npm run test:ui` with `NOTE_URL=http://127.0.0.1:8787`. `attachments.mjs` needs
+   three fixtures in `/tmp/fx` — see `tests/README.md` for what they must contain.
+
+`curl` to `127.0.0.1` works normally; the proxy environment already excludes
+localhost, so a hanging request means the Worker is not serving, not that the proxy
+ate it.
 
 ## Spec issues found — decided, not open
 
