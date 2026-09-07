@@ -3,6 +3,13 @@
 Mirrors the list shown in Settings. One line per release — enough to answer
 "did the thing I asked for actually ship", not full release notes.
 
+## 1.10.0
+Contexts are Work and Home. Vehicles was never a sharing boundary — a work truck is
+Work and her car is Home — so filtering to vehicles is answered by the thing's type
+instead. Linking a note to a thing happens after it is saved rather than before,
+offered as a bar that costs nothing to ignore, and works offline both ways. A thing's
+page has a **+ Note** button that opens capture already aimed at it.
+
 ## 1.9.1
 A thing's context and type are normalised and checked before they are stored. The
 bulk importer took free text, so "vehicle " reached the database and produced a

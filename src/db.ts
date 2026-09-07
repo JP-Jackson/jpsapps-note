@@ -191,23 +191,27 @@ export interface ConnectionRow {
 }
 
 /**
- * The three contexts, and the tolerance around them.
+ * The two contexts.
  *
- * Context is a hard filter everywhere it appears — capture chips only offer things in
- * the context you are standing in — so a subject stored as "vehicle " can never be
- * attached to anything and looks, from the app, simply broken. Free text reaches this
- * from the bulk importer, so it is normalised here rather than trusted.
+ * Context is the sharing boundary, not a topic tag: §7 draws the line at "JP's wife
+ * sees Home, she never sees Work". "Vehicles" was a third chip and never a boundary —
+ * a work truck is Work and her car is Home, and as a peer of those two it could
+ * express neither. Filtering to vehicles is answered by type = 'vehicle' on the
+ * thing, which is where it belonged all along.
  *
- * The singular forms are accepted because typing "vehicle" for a truck is a slip, not
- * a different intent. Anything beyond that is rejected: guessing further would trade
- * a visible error for a thing that quietly never works.
+ * Also a hard filter everywhere it appears, so free text from the bulk importer is
+ * normalised here rather than trusted; a subject stored as "vehicle " could never be
+ * attached to anything and looked, from the app, simply broken.
+ *
+ * "vehicles" is rejected rather than mapped. Half of them are Work and half are Home,
+ * so a guess here would be wrong about half the time and silent every time.
  */
-const CONTEXTS = ["work", "home", "vehicles"] as const;
-const CONTEXT_ALIASES: Record<string, string> = { vehicle: "vehicles" };
+const CONTEXTS = ["work", "home"] as const;
+const CONTEXT_ALIASES: Record<string, string> = {};
 
 export class BadContext extends Error {
   constructor(readonly given: string) {
-    super(`"${given}" is not a context. Use work, home or vehicles.`);
+    super(`"${given}" is not a context. Use work or home.`);
   }
 }
 

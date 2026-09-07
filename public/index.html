@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#16222E">
-<meta name="app-version" content="1.9.1">
+<meta name="app-version" content="1.10.0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Note">
@@ -263,6 +263,13 @@
   #detail .body{max-width:560px;margin:0 auto;padding:16px}
   #detail img.photo{width:100%;border-radius:12px;border:1px solid var(--line);
     margin-bottom:10px;display:block}
+  #linkBar{margin-bottom:8px}
+  .lb-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+  #lbText{font:500 11px/1.6 var(--font-mono);text-transform:uppercase;
+    letter-spacing:.04em;color:var(--ink-2)}
+  #lbClose{margin-left:auto;background:none;border:0;color:var(--ink-2);
+    font-size:20px;line-height:1;padding:0 4px;cursor:pointer}
+  #linkChips .chip.done{background:var(--blue);color:#fff;border-color:var(--blue)}
   .hint{font-size:13px;line-height:1.6;color:var(--ink-2);margin:0 0 12px}
   .hint code{font:500 12px/1 var(--font-mono);background:var(--bg);
     border:1px solid var(--line);border-radius:5px;padding:2px 5px}
@@ -621,7 +628,7 @@
          have to remember or retype it. -->
     <button class="btn ghost sm" id="copyPrompt" style="margin-bottom:10px">
       Copy the prompt for Claude</button>
-    <textarea id="importBox" placeholder="Compressor 2 | equipment | work&#10;F-150 | vehicle | vehicles&#10;Mower | equipment | home"></textarea>
+    <textarea id="importBox" placeholder="Compressor 2 | equipment | work&#10;F-150 | vehicle | work&#10;Mower | equipment | home"></textarea>
     <button class="btn ghost sm" id="importBtn">Import list</button>
     <div id="importResult" class="empty"></div>
 
@@ -660,7 +667,6 @@
     <div class="chips" id="notesCtx">
       <button class="chip" data-ictx="work"     aria-pressed="true">Work</button>
       <button class="chip" data-ictx="home"     aria-pressed="false">Home</button>
-      <button class="chip" data-ictx="vehicles" aria-pressed="false">Vehicles</button>
     </div>
     <label class="row" style="gap:8px">Attach to
       <select id="notesSubject" style="flex:1;border:1px solid var(--line);border-radius:8px;
@@ -697,7 +703,6 @@
     <div class="chips" id="newCtx">
       <button class="chip" data-nctx="work"     aria-pressed="true">Work</button>
       <button class="chip" data-nctx="home"     aria-pressed="false">Home</button>
-      <button class="chip" data-nctx="vehicles" aria-pressed="false">Vehicles</button>
     </div>
 
     <button class="btn" id="createThing" style="margin-top:6px">Add it</button>
@@ -775,11 +780,21 @@
 <div id="thumb" hidden>
   <button id="placeChip" class="place" hidden></button>
   <div class="chips" id="chips">
-    <button class="chip" data-ctx="work"     aria-pressed="true">Work</button>
-    <button class="chip" data-ctx="home"     aria-pressed="false">Home</button>
-    <button class="chip" data-ctx="vehicles" aria-pressed="false">Vehicles</button>
+    <button class="chip" data-ctx="work" aria-pressed="true">Work</button>
+    <button class="chip" data-ctx="home" aria-pressed="false">Home</button>
   </div>
-  <div class="chips" id="subjChips" hidden></div>
+  <!-- Set when a capture was started from a thing's page: the link is already
+       decided, so it is shown as state rather than asked for again. -->
+  <button id="againstChip" class="place" hidden></button>
+
+  <!-- Offered AFTER the note is safe (§1). Ignore it and nothing is lost. -->
+  <div id="linkBar" hidden>
+    <div class="lb-head">
+      <span id="lbText">Saved.</span>
+      <button id="lbClose" aria-label="Dismiss">&times;</button>
+    </div>
+    <div class="chips" id="linkChips"></div>
+  </div>
   <div class="doit">
     <button id="flagBtn" class="sq" aria-pressed="false" title="Needs follow-up">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4h13l-2 4 2 4H5"/></svg>
@@ -883,15 +898,21 @@ $("stale").addEventListener("click", async () => {
    The queue is the whole offline story (§6). An entry is written here BEFORE any
    network attempt, so a capture in a dead zone is durable the moment you hit save —
    losing one is the failure that kills trust in the tool. */
-const DB_NAME = "note", STORE = "queue";
+const DB_NAME = "note", STORE = "queue", LINKS = "links";
 let idb;
 
 function openDb() {
   return new Promise((res, rej) => {
-    const r = indexedDB.open(DB_NAME, 1);
+    const r = indexedDB.open(DB_NAME, 2);
     r.onupgradeneeded = () => {
       if (!r.result.objectStoreNames.contains(STORE)) {
         r.result.createObjectStore(STORE, { keyPath: "id" });
+      }
+      // Links to entries that have already synced. A separate store because they
+      // outlive the entry in the queue: the entry is gone the moment it lands, and
+      // the tap that links it can come afterwards.
+      if (!r.result.objectStoreNames.contains(LINKS)) {
+        r.result.createObjectStore(LINKS, { keyPath: "id" });
       }
     };
     r.onsuccess = () => res(r.result);
@@ -899,9 +920,14 @@ function openDb() {
   });
 }
 function tx(mode) { return idb.transaction(STORE, mode).objectStore(STORE); }
+function ltx(mode) { return idb.transaction(LINKS, mode).objectStore(LINKS); }
 function put(rec)  { return new Promise((res, rej) => { const q = tx("readwrite").put(rec); q.onsuccess = res; q.onerror = () => rej(q.error); }); }
 function del(id)   { return new Promise((res, rej) => { const q = tx("readwrite").delete(id); q.onsuccess = res; q.onerror = () => rej(q.error); }); }
 function all()     { return new Promise((res, rej) => { const q = tx("readonly").getAll();   q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); }
+function one(id)   { return new Promise((res, rej) => { const q = tx("readonly").get(id);    q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); }
+function putLink(r){ return new Promise((res, rej) => { const q = ltx("readwrite").put(r);   q.onsuccess = res; q.onerror = () => rej(q.error); }); }
+function delLink(id){return new Promise((res, rej) => { const q = ltx("readwrite").delete(id); q.onsuccess = res; q.onerror = () => rej(q.error); }); }
+function allLinks(){ return new Promise((res, rej) => { const q = ltx("readonly").getAll();  q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); }
 
 /* ------------------------------------------------------------------ camera
    §5: capture happens inside the app, not via the phone's camera app — that is what
@@ -998,8 +1024,10 @@ $("chips").addEventListener("click", (e) => {
   context = chip.dataset.ctx;
   localStorage.setItem(CTX_KEY, context);   // remembered, so the common case is 0 taps
   paintChips();
-  pickedSubjects.clear();                   // a subject belongs to its context
-  paintSubjectChips();
+  // A thing belongs to one context, so a capture aimed at one stops making sense
+  // the moment you switch away from it.
+  if (linkTo && linkTo.context !== context) { linkTo = null; paintAgainst(); }
+  closeLinkBar();
 });
 paintChips();
 
@@ -1111,41 +1139,107 @@ $("placeChip").addEventListener("click", async () => {
     context = herePlace.context;
     try { localStorage.setItem(CTX_KEY, context); } catch {}
     paintChips();
-    pickedSubjects.clear();
-    paintSubjectChips();
+    if (linkTo && linkTo.context !== context) { linkTo = null; paintAgainst(); }
   }
 });
 
-/* ---- subject chips on the capture screen ----
-   Optional and zero-tap by default: §1 says capture speed decides whether the habit
-   survives, so naming the thing must never be a step you have to clear. Only
-   subjects in the current context are offered, because that is the set that could
-   plausibly apply. */
-let pickedSubjects = new Set();
+/* ---- linking a note to a thing ----
+   Linking used to be chips you cleared BEFORE saving, which is sorting into a
+   taxonomy before the thought is finished — friction at the one moment §1 says must
+   have none. It happens after the note is safe now: the bar is an offer, and
+   ignoring it costs nothing.
 
-function paintSubjectChips() {
-  const box = $("subjChips");
-  if (!box) return;
-  const mine = subjects.filter((s) => s.context === context && !s.archived_at).slice(0, 6);
-  if (!mine.length) { box.hidden = true; return; }
-  box.hidden = false;
-  box.replaceChildren();
-  mine.forEach((s) => {
-    const b = document.createElement("button");
-    b.className = "chip";
-    b.dataset.pick = s.id;
-    b.textContent = s.name;
-    b.setAttribute("aria-pressed", String(pickedSubjects.has(s.id)));
-    box.append(b);
-  });
+   Two directions. `linkTo` is set when the capture was started from a thing's page,
+   where the answer is already known. The bar is for everything else. */
+let linkTo = null;        // a thing this capture is already against
+let lastSaved = null;     // the note the bar is currently offering to link
+let lbTimer = null;
+
+function paintAgainst() {
+  const b = $("againstChip");
+  if (!linkTo) { b.hidden = true; return; }
+  b.hidden = false;
+  b.textContent = "Against " + linkTo.name + "  \u00d7";
 }
 
-$("subjChips").addEventListener("click", (e) => {
-  const b = e.target.closest("[data-pick]");
-  if (!b) return;
-  const id = b.dataset.pick;
-  if (pickedSubjects.has(id)) pickedSubjects.delete(id); else pickedSubjects.add(id);
-  b.setAttribute("aria-pressed", String(pickedSubjects.has(id)));
+$("againstChip").addEventListener("click", () => { linkTo = null; paintAgainst(); });
+
+/**
+ * Which things to offer, best guess first.
+ *
+ * A thing named in the note comes first — plain substring matching, no model and no
+ * cost. Matching whole significant words too, because "truck won't start" should
+ * find "white truck" and an exact-name-only match never would.
+ */
+function linkCandidates(text, ctx) {
+  const t = (text || "").toLowerCase();
+  const live = subjects.filter((s) => !s.archived_at && s.context === ctx);
+  const score = (s) => {
+    const name = (s.name || "").toLowerCase();
+    if (!name) return 0;
+    if (t.includes(name)) return 2;
+    return name.split(/\s+/).some((w) => w.length >= 4 && t.includes(w)) ? 1 : 0;
+  };
+  return live
+    .map((s) => [score(s), s])
+    .sort((a, b) => b[0] - a[0])
+    .map(([, s]) => s)
+    .slice(0, 5);
+}
+
+function closeLinkBar() {
+  clearTimeout(lbTimer);
+  $("linkBar").hidden = true;
+  lastSaved = null;
+}
+
+function offerLink(rec) {
+  // Already decided at capture, or nothing to offer: say nothing rather than
+  // showing an empty prompt that has to be dismissed.
+  const cands = rec.subject_ids && rec.subject_ids.length
+    ? [] : linkCandidates(rec.body, rec.context);
+  if (!cands.length) { closeLinkBar(); return; }
+
+  lastSaved = rec;
+  $("lbText").textContent = "Saved \u00b7 link it to";
+  const box = $("linkChips");
+  box.replaceChildren();
+  cands.forEach((sub) => {
+    const b = document.createElement("button");
+    b.className = "chip";
+    b.dataset.link = sub.id;
+    b.textContent = sub.name;
+    box.append(b);
+  });
+  $("linkBar").hidden = false;
+  clearTimeout(lbTimer);
+  lbTimer = setTimeout(closeLinkBar, 20000);
+}
+
+$("lbClose").addEventListener("click", closeLinkBar);
+
+$("linkChips").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-link]");
+  if (!b || !lastSaved || b.classList.contains("done")) return;
+  const entryId = lastSaved.id, subjectId = b.dataset.link;
+  b.classList.add("done");
+  b.textContent = "\u2713 " + b.textContent;
+
+  // Still in the queue: fold the link into the entry so it rides the original POST
+  // and costs no second request. Gone from the queue means it already landed, so
+  // the link is queued on its own and flushed the same way.
+  const queued = await one(entryId);
+  if (queued) {
+    queued.subject_ids = [...new Set([...(queued.subject_ids || []), subjectId])];
+    await put(queued);
+  } else {
+    const pending = (await allLinks()).find((l) => l.id === entryId);
+    const ids = [...new Set([...((pending && pending.subject_ids) || []), subjectId])];
+    await putLink({ id: entryId, subject_ids: ids });
+  }
+  flush();
+  clearTimeout(lbTimer);
+  lbTimer = setTimeout(closeLinkBar, 2500);
 });
 
 /* ------------------------------------------------------------------ location
@@ -1178,7 +1272,7 @@ $("save").addEventListener("click", async () => {
     body: text || null,
     lat, lng,
     is_open: flagged,
-    subject_ids: [...pickedSubjects],
+    subject_ids: linkTo ? [linkTo.id] : [],
     place_id: placeAccepted && herePlace ? herePlace.id : null,
     photo: photoBlob || null,
   };
@@ -1187,11 +1281,12 @@ $("save").addEventListener("click", async () => {
   $("body").value = "";
   flagged = false;
   $("flagBtn").setAttribute("aria-pressed", "false");
-  pickedSubjects.clear();
-  paintSubjectChips();
+  linkTo = null;
+  paintAgainst();
   clearPhoto();
   $("save").disabled = false;
   renderRecent();
+  offerLink(rec);                     // the note is safe; linking is now optional
   flush();
 });
 
@@ -1227,6 +1322,21 @@ async function flush() {
         if (!up.ok) throw new Error("photo " + up.status);
       }
       await del(rec.id);              // only once BOTH parts are safely up
+    }
+
+    // Links go after entries, so one queued alongside its own entry lands second and
+    // finds it. The endpoint ignores a pair it already has, so a retry is free.
+    for (const link of await allLinks()) {
+      const res = await fetch("/api/entries/" + encodeURIComponent(link.id) + "/subjects", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ subject_ids: link.subject_ids || [] }),
+      });
+      if (res.status === 401 || res.status === 403) { location.reload(); return; }
+      // A 404 means the entry is gone for good. Keeping the link would retry it
+      // forever, so drop it rather than jam the queue behind something unfixable.
+      if (!res.ok && res.status !== 404) throw new Error("link " + res.status);
+      await delLink(link.id);
     }
     err("");
   } catch {
@@ -1540,6 +1650,25 @@ function closeOverlay(id) {
   else $(id).hidden = true;
 }
 
+/**
+ * Close an overlay and land on a view in one step.
+ *
+ * Not closeOverlay() followed by go(): history.back() is asynchronous, so the push
+ * from go() lands before the pop is delivered and the stack ends up holding an entry
+ * that matches nothing on screen. Replacing the overlay's own entry is deterministic
+ * — back then goes to whatever was underneath it, which is where you actually were.
+ */
+function closeOverlayTo(id, nextView) {
+  $(id).hidden = true;
+  if (id === "subject") currentSubject = null;
+  if (history.state && history.state.overlay === id) {
+    history.replaceState({ view: nextView }, "");
+  } else if (nextView !== view) {
+    history.pushState({ view: nextView }, "");
+  }
+  applyView(nextView);
+}
+
 function topOverlay() {
   return OVERLAYS.find((id) => !$(id).hidden) || null;
 }
@@ -1596,6 +1725,7 @@ document.querySelector("nav").addEventListener("click", (e) => {
    One line per release, newest first. Kept deliberately short: it exists to answer
    "did the thing I asked for actually ship", not to be release notes. */
 const RELEASES = [
+  ["1.10.0", "Work/Home only; link a note after saving; + Note from a thing"],
   ["1.9.1", "Things can no longer be saved into a context that does not exist"],
   ["1.9.0", "Connect Note to Claude — it can search the log and add notes for you"],
   ["1.8.0", "Import an HTML or text log as dated entries; copy the Claude prompt"],
@@ -1673,7 +1803,6 @@ async function loadSubjects() {
       '<span class="kind">' + esc(s.type) + " · " + esc(s.context) + "</span>";
     node.append(b);
   });
-  paintSubjectChips();
 }
 
 document.addEventListener("click", (e) => {
@@ -1744,10 +1873,26 @@ function renderSubjectRead() {
       (s.archived_at ? '<span class="badge2">archived</span>' : "") +
       '<span class="badge2">' + s.entries.length + " logged</span></div></div>" +
     '<div class="spec">' + rows + "</div>" +
-    '<div class="actions"><button class="btn sm" id="editSubject">Edit</button></div>' +
+    '<div class="actions">' +
+      '<button class="btn sm" id="noteAgainst">+ Note</button>' +
+      '<button class="btn sm ghost" id="editSubject">Edit</button></div>' +
     "<h2>History</h2>" + history;
 
   $("editSubject").addEventListener("click", () => { editing = true; renderSubject(); });
+
+  // The main path for equipment: you are standing at the machine, you opened its
+  // history to see what you did last time, you fixed it, you log it. Context and
+  // link both come from the thing, so there is nothing left to decide.
+  $("noteAgainst").addEventListener("click", () => {
+    linkTo = { id: s.id, name: s.name, context: s.context };
+    context = s.context;
+    try { localStorage.setItem(CTX_KEY, context); } catch {}
+    paintChips();
+    paintAgainst();
+    closeLinkBar();
+    closeOverlayTo("subject", "capture");
+    $("body").focus();
+  });
 }
 
 function renderSubjectEdit() {
@@ -1765,7 +1910,7 @@ function renderSubjectEdit() {
       'border-radius:10px;background:var(--card);color:var(--ink);padding:12px;' +
       'font:700 19px var(--font-ui);margin-bottom:10px">' +
     '<div class="chips" id="subjCtx">' +
-      ["work", "home", "vehicles"].map((c) =>
+      ["work", "home"].map((c) =>
         '<button class="chip" data-subj-ctx="' + c + '" aria-pressed="' + (s.context === c) + '">' +
         c[0].toUpperCase() + c.slice(1) + "</button>").join("") +
     "</div>" +
@@ -1848,7 +1993,7 @@ const CLAUDE_PROMPT = [
   '  "attributes": {"Make": "Ingersoll Rand", "Voltage / phase": "480V 3ph"}}]',
   "",
   'type is one of: "equipment", "vehicle", "generic".',
-  'context is one of: "work", "home", "vehicles".',
+  'context is one of: "work", "home".',
   "attributes is free-form — only include fields I actually mention.",
   "",
   "Here is what I have:",

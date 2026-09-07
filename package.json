@@ -1,6 +1,6 @@
 {
   "name": "jpsapps-note",
-  "version": "1.9.1",
+  "version": "1.10.0",
   "description": "Note — a capture-first day log for work and home",
   "scripts": {
     "dev": "wrangler dev",
@@ -9,7 +9,8 @@
     "version:sync": "node scripts/sync-version.mjs",
     "predeploy": "npm run version:sync",
     "db:migrate": "wrangler d1 migrations apply note --remote",
-    "db:migrate:local": "wrangler d1 migrations apply note --local"
+    "db:migrate:local": "wrangler d1 migrations apply note --local",
+    "test:ui": "node tests/capture-linking.mjs && node tests/offline-linking.mjs"
   },
   "repository": {
     "type": "git",
@@ -21,6 +22,7 @@
   "homepage": "https://github.com/JP-Jackson/jpsapps-note#readme",
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260906.1",
+    "playwright": "^1.63.0",
     "typescript": "^7.0.2",
     "wrangler": "^4.129.0"
   },

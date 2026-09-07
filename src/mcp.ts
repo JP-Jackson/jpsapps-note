@@ -104,7 +104,7 @@ const TOOLS = [
       properties: {
         name: { type: "string" },
         type: { type: "string", enum: ["equipment", "vehicle", "generic"] },
-        context: { type: "string", enum: ["work", "home", "vehicles"] },
+        context: { type: "string", enum: ["work", "home"] },
         attributes: { type: "object", description: 'e.g. {"Make": "Ingersoll Rand"}' },
       },
       required: ["name", "context"],
@@ -119,7 +119,7 @@ const TOOLS = [
       type: "object",
       properties: {
         body: { type: "string" },
-        context: { type: "string", enum: ["work", "home", "vehicles"] },
+        context: { type: "string", enum: ["work", "home"] },
         thing: { type: "string", description: "Name of a thing to attach it to" },
         needs_followup: { type: "boolean" },
       },

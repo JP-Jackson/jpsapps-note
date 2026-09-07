@@ -527,6 +527,43 @@ app.all("/mcp", async (c) => {
   return handleMcp(c.req.raw, c.env.DB, userId);
 });
 
+/**
+ * Attach a thing to an entry that already exists.
+ *
+ * Linking used to be possible only at capture, as chips you had to clear before
+ * saving — taxonomy before the thought was finished, which is friction at the one
+ * moment §1 says must have none. The link happens after the note is safe instead,
+ * so this endpoint is what that taps land on. It is also the only way to attach
+ * something to a note captured weeks ago.
+ *
+ * Idempotent: linkEntrySubjects ignores a pair that already exists, so a retry from
+ * the offline queue cannot double-write and the client never has to track whether
+ * its tap got through.
+ */
+app.post("/api/entries/:id/subjects", async (c) => {
+  const id = c.req.param("id");
+  const db = c.get("db");
+  let body: Record<string, unknown>;
+  try {
+    body = (await c.req.json()) as Record<string, unknown>;
+  } catch {
+    return c.json({ error: "Body must be JSON" }, 400);
+  }
+
+  const ids = Array.isArray(body.subject_ids)
+    ? body.subject_ids.filter((v): v is string => typeof v === "string")
+    : [];
+  if (!ids.length) return c.json({ error: "subject_ids is required" }, 400);
+
+  // Checked explicitly: entry_subjects carries its own user_id, so writing a row
+  // here without asking would let a link be made against an entry that is not the
+  // caller's — the row would look perfectly valid.
+  if (!(await db.ownsEntry(id))) return c.json({ error: "No such entry" }, 404);
+
+  await db.linkEntrySubjects(id, ids);
+  return c.json({ subjects: await db.entrySubjects(id) });
+});
+
 /** What Claude is connected to, and the switch that cuts it off. */
 app.get("/api/connections", async (c) => {
   return c.json({ connections: await c.get("db").connections() });
