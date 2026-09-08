@@ -59,7 +59,10 @@ Phases 1–6 of §11 are built and deployed. Every push to `main` deploys automa
 Migrations applied: `0001_init`, `0002_subjects`, `0003_oauth`, `0004_hierarchy`, `0005_people`, `0006_personal`, `0007_kinds`.
 Secrets: `OAUTH_SECRET`.
 
-**Live data, as of v1.23.0: fake.** The seed set from `scripts/seed-dev.mjs` (five west-Texas places, ten items, three people, twenty notes) was written to production on 7 Sep so JP could drive the app with data in it. Delete it when he says so. Before that, as of v1.22.0, three things existed and nested: `Yard` → `Front sprinkler`,
+**Live data: wiped on 8 Sep 2026 at JP's request** (v2.0.2) by the **Wipe data**
+workflow (`.github/workflows/wipe.yml`, runs `scripts/wipe-data.sql`; type `wipe`).
+It keeps users, the Claude connection and the templates. The paragraph below is
+history. **Live data, as of v1.23.0: fake.** The seed set from `scripts/seed-dev.mjs` (five west-Texas places, ten items, three people, twenty notes) was written to production on 7 Sep so JP could drive the app with data in it. Delete it when he says so. Before that, as of v1.22.0, three things existed and nested: `Yard` → `Front sprinkler`,
 plus a loose `Air conditioner`. The places `Home` and `Rental` do **not** exist yet —
 they need coordinates, and neither the MCP connector nor a sandboxed session can
 create a place. JP adds those two from the map picker, then drags the two things into
