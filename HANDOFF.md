@@ -1,12 +1,37 @@
 # Note — handoff
 
-Written 7 Sep 2026, updated at **v1.24.0**. `NOTE_SPEC.md` is the authority: where it states a
+Written 7 Sep 2026, updated 8 Sep at **v2.0.2**. `NOTE_SPEC.md` is the authority: where it states a
 decision and a reason, follow it rather than substituting a different approach. This
 file records where the spec was overruled and why.
 
-**Start here: “The plan, in order”.** Section 1 is done and deployed. **Section 2,
-things offline, is the next job** — read it, then “Getting a session running” at the
-bottom before writing anything.
+**Start here: “Where 2.0 stopped” just below, then “The plan, in order”.** Read
+“Getting a session running” at the bottom before writing anything.
+
+## Where 2.0 stopped (8 Sep 2026, end of session)
+
+- **Live: v2.0.2**, deployed from `main`. Migration `0007_kinds` applied to
+  production. **Production data wiped** at JP's request; he starts fresh and tests
+  over the next few days. Expect a list of things that felt wrong, not a list of bugs.
+- **What he asked for next, in his words:** *events.* An inventory at work is coming,
+  a multi-day thing with notes and questions. Proposed and he did not object:
+  **Event as a type of Thing** (template: Starts, Ends, Where, Who), **sticky
+  capture** (open the event, tap Start, every capture lands on it without an `@`
+  until Stop or its end date), **questions are to-dos tagged `#question`**
+  (a leading `?` on the line makes one), events on Today and Due while running,
+  export of the event as CSV or a text summary. No migration needed: a type value
+  and two attributes. Ask him when the inventory is before building anything else.
+- **Colour:** the work accent went maroon → darker maroon → **charcoal** (his pick,
+  option 9 of a swatch sheet). Do not offer red again.
+- **Reminders:** he wants nudges "every x days". Schedules do the recurrence and the
+  Google Calendar link (with RRULE) does the nudging. True push notifications would
+  need Web Push + a cron Worker; not built, not asked for yet.
+- **Not built from the mock:** the *Talk* capture mode (conversational, AI asks one
+  question). The Inbox covers the same need without Workers AI for now.
+- **The browser tests are stale** — see the v2.0.0 note below. First job of any
+  session that touches the UI.
+- **The Cloudflare MCP tools in a sandbox point at the work account** (only
+  `polk-careers` listed). Anything against the real D1 goes through the GitHub
+  workflows: Migrate, and now **Wipe data**.
 
 ## v2.0.0 — kinds, tags, due, inbox, today (8 Sep 2026)
 
