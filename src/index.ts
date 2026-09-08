@@ -13,7 +13,8 @@
 
 import { Hono } from "hono";
 import type { Env } from "./env";
-import { BadContext, BadParent, Db, VersionConflict, worldOf, type PlacePatch } from "./db";
+import { BadContext, BadParent, Db, VersionConflict, worldOf, type EntryFilter, type EntryPatch, type PlacePatch, type ScheduleRow } from "./db";
+import { nextDue } from "./due";
 import { fileKey, photoKey } from "./ids";
 import { VERSION } from "./version";
 import { authenticate, AuthError, type Session } from "./auth";
@@ -191,6 +192,8 @@ app.post("/api/entries", async (c) => {
 
   const text = typeof e.body === "string" ? e.body.trim() : "";
   const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+  const kind = str(e.kind) ?? (e.is_open === true ? "todo" : "note");
 
   const { created } = await c.get("db").createEntry({
     id,
@@ -206,6 +209,19 @@ app.post("/api/entries", async (c) => {
     // to whatever was running when it happened, not to whatever is running by the
     // time the queue drains (§6).
     activity_id: typeof e.activity_id === "string" ? e.activity_id : null,
+    kind,
+    due_at: num(e.due_at),
+    done_at: num(e.done_at),
+    starts_at: num(e.starts_at),
+    ends_at: num(e.ends_at),
+    metric: str(e.metric),
+    value: num(e.value),
+    unit: str(e.unit),
+    spec_key: str(e.spec_key),
+    spec_value: str(e.spec_value),
+    amount: num(e.amount),
+    reviewed: e.reviewed !== false,
+    schedule_id: str(e.schedule_id),
   });
 
   // §4: one capture can touch a site, a panel and the device on it, so this is a
@@ -225,9 +241,36 @@ app.post("/api/entries", async (c) => {
   }
   if (subjectIds.length) await db.linkEntrySubjects(id, subjectIds);
   if (personIds.length) await db.linkEntryPeople(id, personIds);
+  const tags = strs(e.tags);
+  if (created && tags.length) await db.setEntryTags(id, tags);
+  // A spec is a fact about the thing: it lands on the thing's page as well as in
+  // the log, so the log says when you learned it and the page says what it is.
+  const specKey = str(e.spec_key), specVal = str(e.spec_value);
+  if (created && kind === "spec" && specKey && subjectIds[0]) {
+    await db.setAttribute(subjectIds[0], specKey, specVal);
+  }
 
   return c.json({ id, created }, created ? 201 : 200);
 });
+
+/** ?kind=todo&tags=parts,warranty&q=contactor&subject_id=…&open=1&sort=due&limit=200 */
+function filterFrom(q: Record<string, string | undefined>): EntryFilter {
+  const n = (v: string | undefined) => (v && Number.isFinite(Number(v)) ? Number(v) : undefined);
+  const sort = q.sort;
+  return {
+    kind: q.kind || null,
+    subject_id: q.subject_id || null,
+    tags: (q.tags || "").split(",").map((t) => t.trim()).filter(Boolean),
+    q: q.q || "",
+    from: n(q.from),
+    to: n(q.to),
+    open: q.open === "1",
+    reviewed: q.reviewed === "0" ? false : q.reviewed === "1" ? true : undefined,
+    metric: q.metric || null,
+    sort: sort === "due" || sort === "kind" || sort === "value" ? sort : "created",
+    limit: n(q.limit),
+  };
+}
 
 /**
  * The views (§11 phase 3), chosen by ?view=:
@@ -253,6 +296,15 @@ app.get("/api/entries", async (c) => {
     }
     case "open":
       return c.json({ entries: await db.openEntries(Math.min(limit, 100)) });
+    case "due":
+      return c.json({ entries: await db.dueEntries(Date.now() - 86_400_000, 200) });
+    case "done":
+      return c.json({ entries: await db.doneEntries(50) });
+    case "inbox":
+      return c.json({ entries: await db.inboxEntries(100) });
+    // The table, the tag view, and any saved view: every filter is a query string.
+    case "query":
+      return c.json({ entries: await db.queryEntries(filterFrom(c.req.query())) });
     case "search": {
       const q = (c.req.query("q") ?? "").trim();
       if (q.length < 2) return c.json({ entries: [], error: "Search needs 2+ characters" });
@@ -274,7 +326,7 @@ app.get("/api/entries/:id", async (c) => {
     ...shapeAttachments(detail.attachments, c.env.IMG_BASE),
     // Sent rather than recomputed on the client: the device clock is what made the
     // timestamp, and it is not necessarily the clock this was judged against.
-    deletable_for_ms: Math.max(0, DELETE_WINDOW_MS - (Date.now() - detail.created_at)),
+    deletable_for_ms: DELETE_WINDOW_MS,
   });
 });
 
@@ -304,6 +356,40 @@ app.patch("/api/entries/:id", async (c) => {
     await db.resolveEntry(id, resolver);
   } else if (payload.is_open === true) {
     await db.reopenEntry(id);
+  }
+
+  // v2 fields. `done` is the one-tap form of done_at.
+  const patch: EntryPatch = {};
+  const numOrNull = (v: unknown) => (v === null ? null : typeof v === "number" && Number.isFinite(v) ? v : undefined);
+  const strOrNull = (v: unknown) => (v === null ? null : typeof v === "string" ? v : undefined);
+  if (typeof payload.kind === "string") patch.kind = payload.kind;
+  for (const k of ["due_at", "done_at", "starts_at", "ends_at", "value", "amount"] as const) {
+    const v = numOrNull(payload[k]);
+    if (v !== undefined) patch[k] = v;
+  }
+  if (typeof payload.created_at === "number" && Number.isFinite(payload.created_at)) patch.created_at = payload.created_at;
+  for (const k of ["metric", "unit", "spec_key", "spec_value", "place_id"] as const) {
+    const v = strOrNull(payload[k]);
+    if (v !== undefined) patch[k] = v;
+  }
+  if (payload.done === true) patch.done_at = Date.now();
+  if (payload.done === false) patch.done_at = null;
+  if (typeof payload.reviewed === "boolean") patch.reviewed = payload.reviewed;
+  if (Object.keys(patch).length) {
+    if (!(await db.patchEntry(id, patch))) return c.json({ error: "No such entry" }, 404);
+  }
+  const list = (v: unknown) =>
+    Array.isArray(v) ? (v as unknown[]).filter((x): x is string => typeof x === "string") : null;
+  const tags = list(payload.tags);
+  if (tags) await db.setEntryTags(id, tags);
+  const subjectIds = list(payload.subject_ids);
+  if (subjectIds) await db.setEntrySubjects(id, subjectIds);
+  // Linking or filing it is reviewing it.
+  if ((tags && tags.length) || (subjectIds && subjectIds.length)) await db.patchEntry(id, { reviewed: true });
+  if (typeof patch.spec_key === "string" || typeof patch.spec_value === "string" || subjectIds) {
+    const cur = await db.entryDetail(id);
+    const sid = cur?.subjects?.[0]?.id;
+    if (cur && cur.kind === "spec" && cur.spec_key && sid) await db.setAttribute(sid, cur.spec_key, cur.spec_value);
   }
 
   if (typeof payload.body === "string") {
@@ -561,9 +647,12 @@ app.post("/api/subjects/import", async (c) => {
 });
 
 app.get("/api/subjects/:id", async (c) => {
-  const detail = await c.get("db").subjectDetail(c.req.param("id"));
+  const db = c.get("db");
+  const detail = await db.subjectDetail(c.req.param("id"));
   if (!detail) return c.json({ error: "No such subject" }, 404);
-  return c.json({ ...detail, ...shapeAttachments(detail.attachments, c.env.IMG_BASE) });
+  // Schedules carry their next-due here too, so the thing page can draw the bars.
+  const schedules = await Promise.all(detail.schedules.map((s) => withDue(db, s)));
+  return c.json({ ...detail, schedules, ...shapeAttachments(detail.attachments, c.env.IMG_BASE) });
 });
 
 app.patch("/api/subjects/:id", async (c) => {
@@ -578,6 +667,9 @@ app.patch("/api/subjects/:id", async (c) => {
 
   if (typeof body.archived === "boolean") await db.archiveSubject(id, body.archived);
   if (Array.isArray(body.attributes)) await db.setAttributes(id, body.attributes as never);
+  if (Array.isArray(body.tags)) {
+    await db.setSubjectTags(id, (body.tags as unknown[]).filter((t): t is string => typeof t === "string"));
+  }
 
   const patch: Record<string, unknown> = {};
   for (const k of ["name", "context", "visibility"]) {
@@ -693,20 +785,8 @@ app.delete("/api/entries/:id", async (c) => {
   const id = c.req.param("id");
   const db = c.get("db");
 
-  const entry = await db.entryDetail(id);
-  if (!entry) return c.json({ error: "No such entry" }, 404);
-
-  const age = Date.now() - entry.created_at;
-  if (age > DELETE_WINDOW_MS) {
-    return c.json(
-      {
-        error: "Too late to delete this one — the window has passed.",
-        window_ms: DELETE_WINDOW_MS,
-      },
-      403,
-    );
-  }
-
+  // No window any more (v2): the client offers an undo for a few seconds instead
+  // of a confirm, and a note you can edit freely is a note you can delete freely.
   const attachments = await db.deleteEntry(id);
   if (!attachments) return c.json({ error: "No such entry" }, 404);
   await dropObjects(c.env, attachments);
@@ -1024,6 +1104,7 @@ app.post("/api/entries/:id/subjects", async (c) => {
   if (!(await db.ownsEntry(id))) return c.json({ error: "No such entry" }, 404);
 
   await db.linkEntrySubjects(id, ids);
+  await db.patchEntry(id, { reviewed: true });   // filing it is reviewing it
   return c.json({ subjects: await db.entrySubjects(id) });
 });
 
@@ -1116,6 +1197,7 @@ app.post("/api/entries/:id/people", async (c) => {
   if (!ids.length) return c.json({ error: "person_ids is required" }, 400);
   if (!(await db.ownsEntry(id))) return c.json({ error: "No such entry" }, 404);
   await db.linkEntryPeople(id, ids);
+  await db.patchEntry(id, { reviewed: true });   // filing it is reviewing it
   return c.json({ people: await db.entryPeople(id) });
 });
 
@@ -1129,11 +1211,190 @@ app.get("/api/lookup", async (c) => {
   if (q.length < 2) return c.json({ items: [], people: [], places: [] });
   const db = c.get("db");
   const hit = (n: string) => n.toLowerCase().includes(q);
-  const [subjects, people, places] = await Promise.all([db.listSubjects(), db.listPeople(), db.listPlaces()]);
+  const [subjects, people, places, tags] = await Promise.all([db.listSubjects(), db.listPeople(), db.listPlaces(), db.listTags()]);
   return c.json({
     items: subjects.filter((s) => hit(s.name)).slice(0, 10),
     people: people.filter((p) => hit(p.name) || hit(p.company || "") || hit(p.role || "")).slice(0, 10),
     places: places.filter((p) => hit(p.name)).slice(0, 10),
+    tags: tags.filter((t) => hit(t.name)).slice(0, 10),
+  });
+});
+
+/* -------------------------------------------------------------------- tags */
+
+app.get("/api/tags", async (c) => c.json({ tags: await c.get("db").listTags() }));
+
+app.patch("/api/tags/:id", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  if (typeof body.name !== "string") return c.json({ error: "name is required" }, 400);
+  const ok = await c.get("db").renameTag(c.req.param("id"), body.name);
+  return ok ? c.json({ renamed: true }) : c.json({ error: "No such tag" }, 404);
+});
+
+app.delete("/api/tags/:id", async (c) => {
+  const ok = await c.get("db").deleteTag(c.req.param("id"));
+  return ok ? c.json({ deleted: true }) : c.json({ error: "No such tag" }, 404);
+});
+
+/* --------------------------------------------------------------- schedules */
+
+/** A schedule row plus when it is next due, computed from the latest reading. */
+async function withDue(db: Db, s: ScheduleRow) {
+  const stats = s.subject_id && s.metric ? await db.metricStats(s.subject_id, s.metric) : null;
+  return { ...s, next: nextDue(s, stats) };
+}
+
+function scheduleFrom(body: Record<string, unknown>) {
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+  return {
+    subject_id: str(body.subject_id),
+    label: str(body.label) ?? "",
+    every_days: num(body.every_days),
+    every_value: num(body.every_value),
+    metric: str(body.metric),
+    fixed_month: num(body.fixed_month),
+    fixed_day: num(body.fixed_day),
+    last_done_at: num(body.last_done_at),
+    last_value: num(body.last_value),
+  };
+}
+
+app.get("/api/schedules", async (c) => {
+  const db = c.get("db");
+  const rows = await db.listSchedules(c.req.query("subject_id") || null);
+  return c.json({ schedules: await Promise.all(rows.map((s) => withDue(db, s))) });
+});
+
+app.post("/api/schedules", async (c) => {
+  const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+  if (!body) return c.json({ error: "Body must be JSON" }, 400);
+  const s = scheduleFrom(body);
+  const context = typeof body.context === "string" ? body.context : "";
+  if (!s.label || !context) return c.json({ error: "label and context are required" }, 400);
+  if (!s.every_days && !s.every_value && !(s.fixed_month && s.fixed_day)) {
+    return c.json({ error: "A schedule needs every_days, every_value + metric, or a fixed month and day" }, 400);
+  }
+  if (s.every_value && !s.metric) return c.json({ error: "every_value needs a metric" }, 400);
+  const db = c.get("db");
+  if (s.subject_id && !(await db.ownsSubject(s.subject_id))) return c.json({ error: "No such thing" }, 400);
+  const id = await db.createSchedule({ ...s, context });
+  const row = await db.schedule(id);
+  return c.json(row ? await withDue(db, row) : { id }, 201);
+});
+
+app.patch("/api/schedules/:id", async (c) => {
+  const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+  if (!body) return c.json({ error: "Body must be JSON" }, 400);
+  const db = c.get("db");
+  const patch: Record<string, unknown> = {};
+  for (const k of ["label", "every_days", "every_value", "metric", "fixed_month", "fixed_day", "last_done_at", "last_value", "subject_id", "archived_at"]) {
+    if (k in body) patch[k] = body[k];
+  }
+  if (!(await db.updateSchedule(c.req.param("id"), patch as never))) return c.json({ error: "No such schedule" }, 404);
+  const row = await db.schedule(c.req.param("id"));
+  return c.json(row ? await withDue(db, row) : { ok: true });
+});
+
+/** Done: stamp when, and at what reading. The next due follows from that. */
+app.post("/api/schedules/:id/done", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const db = c.get("db");
+  const s = await db.schedule(c.req.param("id"));
+  if (!s) return c.json({ error: "No such schedule" }, 404);
+  const at = typeof body.at === "number" ? body.at : Date.now();
+  let value = typeof body.value === "number" ? body.value : null;
+  if (value == null && s.subject_id && s.metric) {
+    value = (await db.metricStats(s.subject_id, s.metric)).latest?.value ?? null;
+  }
+  await db.updateSchedule(s.id, { last_done_at: at, last_value: value });
+  // The log records it too, on the thing, so the history shows the service.
+  const id = crypto.randomUUID();
+  await db.createEntry({
+    id, created_at: at, context: s.context, body: `${s.label} — done`, lat: null, lng: null,
+    is_open: false, kind: "todo", done_at: at, schedule_id: s.id,
+  });
+  if (s.subject_id) await db.linkEntrySubjects(id, [s.subject_id]);
+  const row = await db.schedule(s.id);
+  return c.json(row ? await withDue(db, row) : { ok: true });
+});
+
+app.delete("/api/schedules/:id", async (c) => {
+  const ok = await c.get("db").deleteSchedule(c.req.param("id"));
+  return ok ? c.json({ deleted: true }) : c.json({ error: "No such schedule" }, 404);
+});
+
+/* ------------------------------------------------------------- saved views */
+
+app.get("/api/views", async (c) => c.json({ views: await c.get("db").listViews() }));
+
+app.post("/api/views", async (c) => {
+  const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+  if (!body || typeof body.name !== "string" || !body.name.trim()) return c.json({ error: "name is required" }, 400);
+  const context = typeof body.context === "string" ? body.context : "";
+  if (!context) return c.json({ error: "context is required" }, 400);
+  const query = typeof body.query === "string" ? body.query : JSON.stringify(body.query ?? {});
+  const id = await c.get("db").createView(body.name, context, query);
+  return c.json({ id }, 201);
+});
+
+app.delete("/api/views/:id", async (c) => {
+  const ok = await c.get("db").deleteView(c.req.param("id"));
+  return ok ? c.json({ deleted: true }) : c.json({ error: "No such view" }, 404);
+});
+
+/* ------------------------------------------------------------------- today
+ * One round trip for the landing screen: what is due soon, what is waiting in the
+ * inbox, what was captured last. */
+app.get("/api/today", async (c) => {
+  const db = c.get("db");
+  const now = Date.now();
+  const [due, inbox, recent, scheds] = await Promise.all([
+    db.dueEntries(now - 86_400_000, 100),
+    db.inboxCount(),
+    db.recentEntries(6),
+    db.listSchedules(null),
+  ]);
+  const schedules = (await Promise.all(scheds.map((s) => withDue(db, s))))
+    .filter((s) => s.next.when != null && s.next.when < now + 14 * 86_400_000)
+    .sort((a, b) => (a.next.when ?? 0) - (b.next.when ?? 0));
+  const soon = now + 7 * 86_400_000;
+  return c.json({
+    now,
+    due: due.filter((e) => {
+      const at = e.kind === "appt" ? e.starts_at : e.due_at;
+      return at != null && at < soon;
+    }),
+    undated: due.filter((e) => e.kind === "todo" && e.due_at == null).length,
+    schedules,
+    inbox_count: inbox,
+    recent,
+  });
+});
+
+/* ------------------------------------------------------------------ export
+ * The table as CSV, same filters. Excel is where the numbers go next. */
+app.get("/api/export.csv", async (c) => {
+  const rows = await c.get("db").queryEntries({ ...filterFrom(c.req.query()), limit: 500 });
+  const cell = (v: unknown) => {
+    const s = v == null ? "" : String(v);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const iso = (ms: number | null) => (ms == null ? "" : new Date(ms).toISOString());
+  const head = ["when", "kind", "context", "thing", "text", "tags", "due", "done", "starts", "metric", "value", "unit", "spec_key", "spec_value", "amount", "id"];
+  const lines = [head.join(",")];
+  for (const e of rows) {
+    lines.push([
+      iso(e.created_at), e.kind, e.context, (e.subjects || []).map((s) => s.name).join("; "), e.body,
+      (e.tags || []).join(" "), iso(e.due_at), iso(e.done_at), iso(e.starts_at), e.metric, e.value, e.unit,
+      e.spec_key, e.spec_value, e.amount, e.id,
+    ].map(cell).join(","));
+  }
+  return new Response(lines.join("\n"), {
+    headers: {
+      "content-type": "text/csv; charset=utf-8",
+      "content-disposition": `attachment; filename="note-${new Date().toISOString().slice(0, 10)}.csv"`,
+    },
   });
 });
 

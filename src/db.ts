@@ -44,9 +44,75 @@ export interface NewEntry {
   lng: number | null;
   is_open: boolean;
   place_id?: string | null;
+  /** v2: note | todo | appt | value | spec. Defaults to note. */
+  kind?: string;
+  due_at?: number | null;
+  done_at?: number | null;
+  starts_at?: number | null;
+  ends_at?: number | null;
+  metric?: string | null;
+  value?: number | null;
+  unit?: string | null;
+  spec_key?: string | null;
+  spec_value?: string | null;
+  amount?: number | null;
+  /** 0 lands it in the Inbox to be filed later. */
+  reviewed?: boolean;
+  schedule_id?: string | null;
+}
+
+/** The v2 columns, editable after the fact. */
+export interface EntryPatch {
+  kind?: string;
+  due_at?: number | null;
+  done_at?: number | null;
+  starts_at?: number | null;
+  ends_at?: number | null;
+  metric?: string | null;
+  value?: number | null;
+  unit?: string | null;
+  spec_key?: string | null;
+  spec_value?: string | null;
+  amount?: number | null;
+  reviewed?: boolean;
+  created_at?: number;
+  place_id?: string | null;
+}
+
+/** Filters for the table, the tag view and search — one query builder, many doors. */
+export interface EntryFilter {
+  kind?: string | null;
+  subject_id?: string | null;
+  /** Tag names; every one must be present (AND). */
+  tags?: string[];
+  q?: string;
+  from?: number;
+  to?: number;
+  /** To-dos not yet done. */
+  open?: boolean;
+  reviewed?: boolean;
+  metric?: string | null;
+  sort?: "created" | "due" | "kind" | "value";
+  limit?: number;
 }
 
 export interface EntryRow {
+  kind: string;
+  due_at: number | null;
+  done_at: number | null;
+  starts_at: number | null;
+  ends_at: number | null;
+  metric: string | null;
+  value: number | null;
+  unit: string | null;
+  spec_key: string | null;
+  spec_value: string | null;
+  amount: number | null;
+  reviewed: number;
+  schedule_id: string | null;
+  /** Filled by `decorate`: tag names, and the things it is linked to. */
+  tags?: string[];
+  subjects?: { id: string; name: string }[];
   id: string;
   /** What was running when this was captured (§11 phase 2). */
   activity_id?: string | null;
@@ -139,6 +205,9 @@ export interface TemplateField {
 }
 
 export interface SubjectDetail extends SubjectRow {
+  tags: string[];
+  schedules: ScheduleRow[];
+  metrics: MetricSeries[];
   attributes: AttributeRow[];
   entries: EntryRow[];
   attachments: AttachmentRow[];
@@ -333,9 +402,61 @@ function normaliseContext(raw: string): string {
  */
 const TYPES = ["equipment", "vehicle", "generic"] as const;
 
+const KINDS = new Set(["note", "todo", "appt", "value", "spec"]);
+/** Unknown kinds become notes rather than errors: a capture must never be refused. */
+function normaliseKind(raw: string | null | undefined): string {
+  const k = (raw || "note").trim().toLowerCase();
+  if (k === "to-do" || k === "task" || k === "action") return "todo";
+  if (k === "appointment" || k === "event") return "appt";
+  if (k === "reading") return "value";
+  return KINDS.has(k) ? k : "note";
+}
+export { normaliseKind };
+
 function normaliseType(raw: string): string {
   const v = raw.trim().toLowerCase();
   return (TYPES as readonly string[]).includes(v) ? v : "generic";
+}
+
+/** Every column a list needs. One string, so a new column cannot be stored and never selected back. */
+const ENTRY_COLS = [
+  "id", "created_at", "synced_at", "context", "body", "body_raw", "lat", "lng", "is_open",
+  "activity_id", "place_id", "kind", "due_at", "done_at", "starts_at", "ends_at", "metric",
+  "value", "unit", "spec_key", "spec_value", "amount", "reviewed", "schedule_id",
+];
+const COLS = ENTRY_COLS.join(", ");
+const ECOLS = ENTRY_COLS.map((c) => "e." + c).join(", ");
+
+/** D1 allows 100 bound parameters per statement; IN-lists are chunked under that. */
+const CHUNK = 90;
+
+export interface TagRow { id: string; name: string; count: number; }
+
+export interface ScheduleRow {
+  id: string;
+  subject_id: string | null;
+  subject_name?: string | null;
+  context: string;
+  label: string;
+  every_days: number | null;
+  every_value: number | null;
+  metric: string | null;
+  fixed_month: number | null;
+  fixed_day: number | null;
+  last_done_at: number | null;
+  last_value: number | null;
+  created_at: number;
+  archived_at: number | null;
+}
+
+export interface SavedView { id: string; name: string; context: string; query: string; sort_order: number; }
+
+/** A reading series for one metric on one thing, newest first. */
+export interface MetricSeries {
+  metric: string;
+  unit: string | null;
+  latest: { value: number; at: number };
+  points: { value: number; at: number }[];
 }
 
 export class Db {
@@ -581,11 +702,16 @@ export class Db {
    * insert and never touched again.
    */
   async createEntry(e: NewEntry): Promise<{ created: boolean }> {
+    const kind = normaliseKind(e.kind);
+    // A to-do that is not done is "open"; the flag survives so the older views and
+    // the connector's list_open_items keep meaning what they always meant.
+    const isOpen = kind === "todo" ? !e.done_at : e.is_open;
     const res = await this.d1
       .prepare(
         `INSERT INTO entries
-           (id, user_id, created_at, synced_at, context, body, body_raw, lat, lng, is_open, place_id, activity_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           (id, user_id, created_at, synced_at, context, body, body_raw, lat, lng, is_open, place_id, activity_id,
+            kind, due_at, done_at, starts_at, ends_at, metric, value, unit, spec_key, spec_value, amount, reviewed, schedule_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (id) DO NOTHING`,
       )
       .bind(
@@ -600,9 +726,22 @@ export class Db {
         e.body,
         e.lat,
         e.lng,
-        e.is_open ? 1 : 0,
+        isOpen ? 1 : 0,
         e.place_id ?? null,
         e.activity_id ?? null,
+        kind,
+        e.due_at ?? null,
+        e.done_at ?? null,
+        e.starts_at ?? null,
+        e.ends_at ?? null,
+        e.metric ? e.metric.trim().toLowerCase() : null,
+        e.value ?? null,
+        e.unit ?? null,
+        e.spec_key ?? null,
+        e.spec_value ?? null,
+        e.amount ?? null,
+        e.reviewed === false ? 0 : 1,
+        e.schedule_id ?? null,
       )
       .run();
     readMeta(this.meter, res.meta);
@@ -612,17 +751,17 @@ export class Db {
   /** Today's captures, newest first. Rides the (user_id, created_at DESC) index. */
   async recentEntries(limit = 20): Promise<EntryRow[]> {
     const sc = this.scope();
-    return this.all<EntryRow>(
+    return this.decorate(await this.all<EntryRow>(
       this.d1
         .prepare(
-          `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open, activity_id, place_id
+          `SELECT ${COLS}
              FROM entries
             WHERE user_id = ? AND deleted_at IS NULL${sc.sql}
             ORDER BY created_at DESC
             LIMIT ?`,
         )
         .bind(this.userId, ...sc.args, limit),
-    );
+    ));
   }
 
   /**
@@ -632,17 +771,17 @@ export class Db {
    */
   async entriesForDay(fromMs: number, toMs: number): Promise<EntryRow[]> {
     const sc = this.scope();
-    return this.all<EntryRow>(
+    return this.decorate(await this.all<EntryRow>(
       this.d1
         .prepare(
-          `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open, activity_id, place_id
+          `SELECT ${COLS}
              FROM entries
             WHERE user_id = ? AND deleted_at IS NULL${sc.sql}
               AND created_at >= ? AND created_at < ?
             ORDER BY created_at DESC`,
         )
         .bind(this.userId, ...sc.args, fromMs, toMs),
-    );
+    ));
   }
 
   /**
@@ -654,17 +793,17 @@ export class Db {
    */
   async openEntries(limit = 100): Promise<EntryRow[]> {
     const sc = this.scope();
-    return this.all<EntryRow>(
+    return this.decorate(await this.all<EntryRow>(
       this.d1
         .prepare(
-          `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open, activity_id, place_id
+          `SELECT ${COLS}
              FROM entries
             WHERE user_id = ? AND is_open = 1 AND deleted_at IS NULL${sc.sql}
             ORDER BY created_at ASC
             LIMIT ?`,
         )
         .bind(this.userId, ...sc.args, limit),
-    );
+    ));
   }
 
   /**
@@ -677,10 +816,10 @@ export class Db {
   async searchEntries(q: string, limit = 50): Promise<EntryRow[]> {
     const sc = this.scope();
     const like = `%${q.replace(/[%_\\]/g, (c) => "\\" + c)}%`;
-    return this.all<EntryRow>(
+    return this.decorate(await this.all<EntryRow>(
       this.d1
         .prepare(
-          `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open, activity_id, place_id
+          `SELECT ${COLS}
              FROM entries
             WHERE user_id = ? AND deleted_at IS NULL${sc.sql}
               AND (body LIKE ?2 ESCAPE '\\' OR body_raw LIKE ?2 ESCAPE '\\')
@@ -688,7 +827,7 @@ export class Db {
             LIMIT ?3`,
         )
         .bind(this.userId, ...sc.args, like, limit),
-    );
+    ));
   }
 
   /** An entry with its photos and both ends of its follow-up thread. */
@@ -703,8 +842,7 @@ export class Db {
     >(
       this.d1
         .prepare(
-          `SELECT e.id, e.created_at, e.synced_at, e.context, e.body, e.body_raw, e.lat, e.lng,
-                  e.is_open, e.activity_id, e.place_id, e.version, e.edited_at,
+          `SELECT ${ECOLS}, e.version, e.edited_at,
                   e.resolved_by AS resolved_by_id, a.label AS activity_label
              FROM entries e
              LEFT JOIN activities a ON a.id = e.activity_id AND a.user_id = e.user_id
@@ -725,7 +863,7 @@ export class Db {
         .bind(id, this.userId),
     );
 
-    const brief = `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open, activity_id, place_id
+    const brief = `SELECT ${COLS}
                      FROM entries WHERE id = ? AND user_id = ? AND deleted_at IS NULL`;
 
     const resolved_by = row.resolved_by_id
@@ -736,14 +874,16 @@ export class Db {
     const resolves = await this.first<EntryRow>(
       this.d1
         .prepare(
-          `SELECT id, created_at, synced_at, context, body, body_raw, lat, lng, is_open, activity_id, place_id
+          `SELECT ${COLS}
              FROM entries WHERE resolved_by = ? AND user_id = ? AND deleted_at IS NULL`,
         )
         .bind(id, this.userId),
     );
 
     const { resolved_by_id: _drop, ...entry } = row;
-    return { ...entry, attachments, resolved_by, resolves };
+    const [dec] = await this.decorate([entry as EntryRow]);
+    return { ...(dec as EntryRow), version: row.version, edited_at: row.edited_at,
+      activity_label: row.activity_label, attachments, resolved_by, resolves };
   }
 
   /**
@@ -783,10 +923,10 @@ export class Db {
     await this.run(
       this.d1
         .prepare(
-          `UPDATE entries SET is_open = 0, resolved_by = ?
+          `UPDATE entries SET is_open = 0, resolved_by = ?, done_at = COALESCE(done_at, ?)
             WHERE id = ? AND user_id = ? AND deleted_at IS NULL`,
         )
-        .bind(resolverId, id, this.userId),
+        .bind(resolverId, Date.now(), id, this.userId),
     );
   }
 
@@ -795,7 +935,7 @@ export class Db {
     await this.run(
       this.d1
         .prepare(
-          `UPDATE entries SET is_open = 1, resolved_by = NULL
+          `UPDATE entries SET is_open = 1, resolved_by = NULL, done_at = NULL, kind = 'todo'
             WHERE id = ? AND user_id = ? AND deleted_at IS NULL`,
         )
         .bind(id, this.userId),
@@ -838,6 +978,9 @@ export class Db {
         .bind(id, this.userId),
       this.d1
         .prepare("DELETE FROM entry_people WHERE entry_id = ? AND user_id = ?")
+        .bind(id, this.userId),
+      this.d1
+        .prepare("DELETE FROM entry_tags WHERE entry_id = ? AND user_id = ?")
         .bind(id, this.userId),
       this.d1.prepare("DELETE FROM attachments WHERE entry_id = ? AND user_id = ?").bind(id, this.userId),
       this.d1.prepare("DELETE FROM entries WHERE id = ? AND user_id = ?").bind(id, this.userId),
@@ -888,6 +1031,12 @@ export class Db {
         .bind(id, this.userId),
       this.d1
         .prepare("DELETE FROM entry_subjects WHERE subject_id = ? AND user_id = ?")
+        .bind(id, this.userId),
+      this.d1
+        .prepare("DELETE FROM subject_tags WHERE subject_id = ? AND user_id = ?")
+        .bind(id, this.userId),
+      this.d1
+        .prepare("DELETE FROM schedules WHERE subject_id = ? AND user_id = ?")
         .bind(id, this.userId),
       this.d1.prepare("DELETE FROM attachments WHERE subject_id = ? AND user_id = ?").bind(id, this.userId),
       this.d1.prepare("DELETE FROM subjects WHERE id = ? AND user_id = ?").bind(id, this.userId),
@@ -1313,8 +1462,7 @@ export class Db {
     const entries = await this.all<EntryRow>(
       this.d1
         .prepare(
-          `SELECT e.id, e.created_at, e.synced_at, e.context, e.body, e.body_raw,
-                  e.lat, e.lng, e.is_open
+          `SELECT ${ECOLS}
              FROM entries e
              JOIN entry_subjects es ON es.entry_id = e.id
             WHERE es.subject_id = ? AND e.user_id = ? AND e.deleted_at IS NULL
@@ -1350,7 +1498,11 @@ export class Db {
         .bind(id, this.userId),
     );
 
-    return { ...row, attributes, entries, attachments, path, children };
+    const [tags, schedules, metrics] = await Promise.all([
+      this.subjectTags(id), this.listSchedules(id), this.metricsOf(id),
+    ]);
+    return { ...row, attributes, entries: await this.decorate(entries), attachments, path, children,
+      tags, schedules, metrics };
   }
 
   /**
@@ -1445,6 +1597,522 @@ export class Db {
         )
         .bind(entryId, this.userId),
     );
+  }
+
+  // --------------------------------------------------------------- v2: kinds
+
+  /**
+   * Attach tag names and linked things to a list of entries.
+   *
+   * Two IN queries rather than a join per row. The list views show "which thing"
+   * and "which tags" on every row, and fetching those per entry would be the
+   * N+1 that eats the daily row budget.
+   */
+  async decorate(rows: EntryRow[]): Promise<EntryRow[]> {
+    if (!rows.length) return rows;
+    const tags = new Map<string, string[]>();
+    const subs = new Map<string, { id: string; name: string }[]>();
+    const ids = rows.map((r) => r.id);
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const part = ids.slice(i, i + CHUNK);
+      const marks = part.map(() => "?").join(",");
+      const t = await this.all<{ entry_id: string; name: string }>(
+        this.d1
+          .prepare(
+            `SELECT et.entry_id, t.name FROM entry_tags et
+               JOIN tags t ON t.id = et.tag_id
+              WHERE et.user_id = ? AND et.entry_id IN (${marks})
+              ORDER BY t.name`,
+          )
+          .bind(this.userId, ...part),
+      );
+      t.forEach((r) => tags.set(r.entry_id, [...(tags.get(r.entry_id) || []), r.name]));
+      const x = await this.all<{ entry_id: string; id: string; name: string }>(
+        this.d1
+          .prepare(
+            `SELECT es.entry_id, s.id, s.name FROM entry_subjects es
+               JOIN subjects s ON s.id = es.subject_id
+              WHERE es.user_id = ? AND es.entry_id IN (${marks})
+              ORDER BY s.name COLLATE NOCASE`,
+          )
+          .bind(this.userId, ...part),
+      );
+      x.forEach((r) => subs.set(r.entry_id, [...(subs.get(r.entry_id) || []), { id: r.id, name: r.name }]));
+    }
+    return rows.map((r) => ({ ...r, tags: tags.get(r.id) || [], subjects: subs.get(r.id) || [] }));
+  }
+
+  /**
+   * The one query behind the table, the tag view, the stream filter and search.
+   *
+   * Built from the filter rather than one method per door, so every door answers
+   * from the same rows and a saved view is just a filter written down.
+   */
+  async queryEntries(f: EntryFilter): Promise<EntryRow[]> {
+    const sc = this.scope("e.context");
+    const joins: string[] = [];
+    const where: string[] = ["e.user_id = ?", "e.deleted_at IS NULL"];
+    const args: unknown[] = [this.userId];
+    if (sc.sql) { where.push("e.context = ?"); args.push(...sc.args); }
+    // Join binds sit in the SQL before the WHERE binds, so they are kept apart.
+    const joinArgs: unknown[] = [];
+    if (f.subject_id) {
+      joins.push("JOIN entry_subjects es ON es.entry_id = e.id AND es.subject_id = ?");
+      joinArgs.push(f.subject_id);
+    }
+    (f.tags || []).forEach((name, i) => {
+      joins.push(
+        `JOIN entry_tags et${i} ON et${i}.entry_id = e.id
+           AND et${i}.tag_id = (SELECT id FROM tags WHERE user_id = e.user_id AND name = ?)`,
+      );
+      joinArgs.push(name.toLowerCase().replace(/^#/, ""));
+    });
+    const kind = f.kind ? normaliseKind(f.kind) : null;
+    if (kind) { where.push("e.kind = ?"); args.push(kind); }
+    if (f.open) where.push("e.kind = 'todo' AND e.done_at IS NULL");
+    if (f.reviewed === false) where.push("e.reviewed = 0");
+    if (f.reviewed === true) where.push("e.reviewed = 1");
+    if (f.metric) { where.push("e.metric = ?"); args.push(f.metric.toLowerCase()); }
+    if (f.from != null) { where.push("e.created_at >= ?"); args.push(f.from); }
+    if (f.to != null) { where.push("e.created_at < ?"); args.push(f.to); }
+    if (f.q && f.q.trim()) {
+      const like = `%${f.q.trim().replace(/[%_\\]/g, (c) => "\\" + c)}%`;
+      where.push("(e.body LIKE ? ESCAPE '\\' OR e.body_raw LIKE ? ESCAPE '\\' OR e.spec_key LIKE ? ESCAPE '\\' OR e.spec_value LIKE ? ESCAPE '\\')");
+      args.push(like, like, like, like);
+    }
+    const order = {
+      created: "e.created_at DESC",
+      due: "COALESCE(e.due_at, e.starts_at) IS NULL, COALESCE(e.due_at, e.starts_at) ASC, e.created_at DESC",
+      kind: "e.kind, e.created_at DESC",
+      value: "e.value DESC, e.created_at DESC",
+    }[f.sort || "created"];
+    const limit = Math.min(Math.max(1, f.limit || 200), 500);
+    const rows = await this.all<EntryRow>(
+      this.d1
+        .prepare(
+          `SELECT ${ECOLS} FROM entries e ${joins.join(" ")}
+            WHERE ${where.join(" AND ")}
+            ORDER BY ${order}
+            LIMIT ?`,
+        )
+        .bind(...joinArgs, ...args, limit),
+    );
+    return this.decorate(rows);
+  }
+
+  /**
+   * What is due: open to-dos by due date (undated last), and appointments from
+   * yesterday on. Schedules are computed separately — they are rules, not rows.
+   */
+  async dueEntries(sinceMs: number, limit = 200): Promise<EntryRow[]> {
+    const sc = this.scope();
+    return this.decorate(await this.all<EntryRow>(
+      this.d1
+        .prepare(
+          `SELECT ${COLS} FROM entries
+            WHERE user_id = ? AND deleted_at IS NULL${sc.sql}
+              AND ((kind = 'todo' AND done_at IS NULL) OR (kind = 'appt' AND starts_at >= ?))
+            ORDER BY COALESCE(due_at, starts_at) IS NULL, COALESCE(due_at, starts_at) ASC, created_at ASC
+            LIMIT ?`,
+        )
+        .bind(this.userId, ...sc.args, sinceMs, limit),
+    ));
+  }
+
+  /** Recently finished to-dos, for the bottom of the Due tab. */
+  async doneEntries(limit = 30): Promise<EntryRow[]> {
+    const sc = this.scope();
+    return this.decorate(await this.all<EntryRow>(
+      this.d1
+        .prepare(
+          `SELECT ${COLS} FROM entries
+            WHERE user_id = ? AND deleted_at IS NULL${sc.sql} AND kind = 'todo' AND done_at IS NOT NULL
+            ORDER BY done_at DESC LIMIT ?`,
+        )
+        .bind(this.userId, ...sc.args, limit),
+    ));
+  }
+
+  /** Captures waiting to be filed. */
+  async inboxEntries(limit = 100): Promise<EntryRow[]> {
+    const sc = this.scope();
+    return this.decorate(await this.all<EntryRow>(
+      this.d1
+        .prepare(
+          `SELECT ${COLS} FROM entries
+            WHERE user_id = ? AND deleted_at IS NULL${sc.sql} AND reviewed = 0
+            ORDER BY created_at DESC LIMIT ?`,
+        )
+        .bind(this.userId, ...sc.args, limit),
+    ));
+  }
+
+  async inboxCount(): Promise<number> {
+    const sc = this.scope();
+    const row = await this.first<{ n: number }>(
+      this.d1
+        .prepare(`SELECT COUNT(*) AS n FROM entries WHERE user_id = ? AND deleted_at IS NULL${sc.sql} AND reviewed = 0`)
+        .bind(this.userId, ...sc.args),
+    );
+    return row?.n ?? 0;
+  }
+
+  /**
+   * Edit the v2 fields on an entry. The note text goes through `editEntry`, which
+   * carries the version check; these fields do not conflict in practice and a
+   * version bump for ticking a box would make the edit screen refuse the tick.
+   */
+  async patchEntry(id: string, patch: EntryPatch): Promise<boolean> {
+    const sets: string[] = [];
+    const vals: unknown[] = [];
+    const put = (col: string, v: unknown) => { sets.push(`${col} = ?`); vals.push(v); };
+    if (patch.kind !== undefined) put("kind", normaliseKind(patch.kind));
+    for (const k of ["due_at", "done_at", "starts_at", "ends_at", "value", "amount", "created_at", "place_id"] as const) {
+      if (patch[k] !== undefined) put(k, patch[k]);
+    }
+    for (const k of ["unit", "spec_key", "spec_value"] as const) {
+      if (patch[k] !== undefined) put(k, patch[k] ? String(patch[k]).trim() : null);
+    }
+    if (patch.metric !== undefined) put("metric", patch.metric ? patch.metric.trim().toLowerCase() : null);
+    if (patch.reviewed !== undefined) put("reviewed", patch.reviewed ? 1 : 0);
+    if (!sets.length) return true;
+    put("edited_at", Date.now());
+    const res = await this.d1
+      .prepare(`UPDATE entries SET ${sets.join(", ")} WHERE id = ? AND user_id = ? AND deleted_at IS NULL`)
+      .bind(...vals, id, this.userId)
+      .run();
+    readMeta(this.meter, res.meta);
+    // is_open follows the kind and done_at, always — never edited on its own.
+    await this.run(
+      this.d1
+        .prepare(
+          `UPDATE entries SET is_open = CASE WHEN kind = 'todo' AND done_at IS NULL THEN 1 ELSE 0 END
+            WHERE id = ? AND user_id = ?`,
+        )
+        .bind(id, this.userId),
+    );
+    return (res.meta?.changes ?? 0) > 0;
+  }
+
+  /** Replace which things an entry is about. The edit sheet owns the whole set. */
+  async setEntrySubjects(entryId: string, subjectIds: string[]): Promise<void> {
+    await this.run(
+      this.d1.prepare("DELETE FROM entry_subjects WHERE entry_id = ? AND user_id = ?").bind(entryId, this.userId),
+    );
+    await this.linkEntrySubjects(entryId, subjectIds);
+  }
+
+  // ------------------------------------------------------------------- tags
+
+  private cleanTag(name: string): string {
+    return name.trim().toLowerCase().replace(/^#+/, "").replace(/\s+/g, "-").slice(0, 40);
+  }
+
+  /** Ids for tag names, creating the ones that do not exist yet. */
+  async ensureTags(names: string[]): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    const clean = [...new Set(names.map((n) => this.cleanTag(n)).filter(Boolean))];
+    for (const name of clean) {
+      const have = await this.first<{ id: string }>(
+        this.d1.prepare("SELECT id FROM tags WHERE user_id = ? AND name = ?").bind(this.userId, name),
+      );
+      if (have) { out.set(name, have.id); continue; }
+      const id = newId();
+      await this.run(
+        this.d1
+          .prepare("INSERT INTO tags (id, user_id, name, created_at) VALUES (?, ?, ?, ?)")
+          .bind(id, this.userId, name, Date.now()),
+      );
+      out.set(name, id);
+    }
+    return out;
+  }
+
+  /** Every tag with how many entries in this world carry it. */
+  async listTags(): Promise<TagRow[]> {
+    const sc = this.scope("e.context");
+    return this.all<TagRow>(
+      this.d1
+        .prepare(
+          `SELECT t.id, t.name,
+                  (SELECT COUNT(*) FROM entry_tags et JOIN entries e ON e.id = et.entry_id
+                    WHERE et.tag_id = t.id AND e.deleted_at IS NULL${sc.sql}) AS count
+             FROM tags t WHERE t.user_id = ?
+            ORDER BY count DESC, t.name`,
+        )
+        .bind(...sc.args, this.userId),
+    );
+  }
+
+  /** Set an entry's tags to exactly this list. */
+  async setEntryTags(entryId: string, names: string[], suggested = false): Promise<void> {
+    const ids = await this.ensureTags(names);
+    const stmts: D1PreparedStatement[] = [
+      this.d1.prepare("DELETE FROM entry_tags WHERE entry_id = ? AND user_id = ?").bind(entryId, this.userId),
+    ];
+    ids.forEach((tagId) =>
+      stmts.push(
+        this.d1
+          .prepare("INSERT INTO entry_tags (entry_id, tag_id, user_id, suggested) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING")
+          .bind(entryId, tagId, this.userId, suggested ? 1 : 0),
+      ),
+    );
+    const res = await this.d1.batch(stmts);
+    res.forEach((r) => readMeta(this.meter, r.meta));
+  }
+
+  /** Add tags without touching the ones already there. */
+  async addEntryTags(entryId: string, names: string[]): Promise<void> {
+    const ids = await this.ensureTags(names);
+    if (!ids.size) return;
+    const stmts = [...ids.values()].map((tagId) =>
+      this.d1
+        .prepare("INSERT INTO entry_tags (entry_id, tag_id, user_id, suggested) VALUES (?, ?, ?, 0) ON CONFLICT DO NOTHING")
+        .bind(entryId, tagId, this.userId),
+    );
+    const res = await this.d1.batch(stmts);
+    res.forEach((r) => readMeta(this.meter, r.meta));
+  }
+
+  async setSubjectTags(subjectId: string, names: string[]): Promise<void> {
+    const ids = await this.ensureTags(names);
+    const stmts: D1PreparedStatement[] = [
+      this.d1.prepare("DELETE FROM subject_tags WHERE subject_id = ? AND user_id = ?").bind(subjectId, this.userId),
+    ];
+    ids.forEach((tagId) =>
+      stmts.push(
+        this.d1
+          .prepare("INSERT INTO subject_tags (subject_id, tag_id, user_id) VALUES (?, ?, ?) ON CONFLICT DO NOTHING")
+          .bind(subjectId, tagId, this.userId),
+      ),
+    );
+    const res = await this.d1.batch(stmts);
+    res.forEach((r) => readMeta(this.meter, r.meta));
+  }
+
+  async subjectTags(subjectId: string): Promise<string[]> {
+    const rows = await this.all<{ name: string }>(
+      this.d1
+        .prepare(
+          `SELECT t.name FROM subject_tags st JOIN tags t ON t.id = st.tag_id
+            WHERE st.subject_id = ? AND st.user_id = ? ORDER BY t.name`,
+        )
+        .bind(subjectId, this.userId),
+    );
+    return rows.map((r) => r.name);
+  }
+
+  /** Rename a tag. Renaming onto an existing name merges into it. */
+  async renameTag(id: string, newName: string): Promise<boolean> {
+    const name = this.cleanTag(newName);
+    if (!name) return false;
+    const clash = await this.first<{ id: string }>(
+      this.d1.prepare("SELECT id FROM tags WHERE user_id = ? AND name = ? AND id != ?").bind(this.userId, name, id),
+    );
+    if (clash) {
+      const res = await this.d1.batch([
+        this.d1.prepare("INSERT OR IGNORE INTO entry_tags (entry_id, tag_id, user_id, suggested) SELECT entry_id, ?, user_id, suggested FROM entry_tags WHERE tag_id = ? AND user_id = ?").bind(clash.id, id, this.userId),
+        this.d1.prepare("INSERT OR IGNORE INTO subject_tags (subject_id, tag_id, user_id) SELECT subject_id, ?, user_id FROM subject_tags WHERE tag_id = ? AND user_id = ?").bind(clash.id, id, this.userId),
+        this.d1.prepare("DELETE FROM entry_tags WHERE tag_id = ? AND user_id = ?").bind(id, this.userId),
+        this.d1.prepare("DELETE FROM subject_tags WHERE tag_id = ? AND user_id = ?").bind(id, this.userId),
+        this.d1.prepare("DELETE FROM tags WHERE id = ? AND user_id = ?").bind(id, this.userId),
+      ]);
+      res.forEach((r) => readMeta(this.meter, r.meta));
+      return true;
+    }
+    const res = await this.d1.prepare("UPDATE tags SET name = ? WHERE id = ? AND user_id = ?").bind(name, id, this.userId).run();
+    readMeta(this.meter, res.meta);
+    return (res.meta?.changes ?? 0) > 0;
+  }
+
+  async deleteTag(id: string): Promise<boolean> {
+    const res = await this.d1.batch([
+      this.d1.prepare("DELETE FROM entry_tags WHERE tag_id = ? AND user_id = ?").bind(id, this.userId),
+      this.d1.prepare("DELETE FROM subject_tags WHERE tag_id = ? AND user_id = ?").bind(id, this.userId),
+      this.d1.prepare("DELETE FROM tags WHERE id = ? AND user_id = ?").bind(id, this.userId),
+    ]);
+    res.forEach((r) => readMeta(this.meter, r.meta));
+    return (res[res.length - 1]?.meta?.changes ?? 0) > 0;
+  }
+
+  // ------------------------------------------------------------------ specs
+
+  /** Write or overwrite one attribute on a thing: what a spec capture does. */
+  async setAttribute(subjectId: string, key: string, value: string | null): Promise<void> {
+    const k = key.trim();
+    if (!k) return;
+    // Match an existing key case-insensitively so "tire size" updates "Tire size"
+    // rather than sitting beside it.
+    const have = await this.first<{ key: string }>(
+      this.d1
+        .prepare("SELECT key FROM subject_attributes WHERE subject_id = ? AND user_id = ? AND key = ? COLLATE NOCASE")
+        .bind(subjectId, this.userId, k),
+    );
+    if (have) {
+      await this.run(
+        this.d1
+          .prepare("UPDATE subject_attributes SET value = ? WHERE subject_id = ? AND user_id = ? AND key = ?")
+          .bind(value, subjectId, this.userId, have.key),
+      );
+      return;
+    }
+    await this.run(
+      this.d1
+        .prepare(
+          `INSERT INTO subject_attributes (subject_id, user_id, key, value, sort_order)
+           VALUES (?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM subject_attributes WHERE subject_id = ?))`,
+        )
+        .bind(subjectId, this.userId, k, value, subjectId),
+    );
+  }
+
+  // ----------------------------------------------------------------- values
+
+  /** Readings on a thing, grouped by metric, newest first — for the thing page. */
+  async metricsOf(subjectId: string, perMetric = 24): Promise<MetricSeries[]> {
+    const rows = await this.all<{ metric: string; value: number; unit: string | null; created_at: number }>(
+      this.d1
+        .prepare(
+          `SELECT e.metric, e.value, e.unit, e.created_at FROM entries e
+             JOIN entry_subjects es ON es.entry_id = e.id AND es.subject_id = ?
+            WHERE e.user_id = ? AND e.deleted_at IS NULL AND e.kind = 'value' AND e.metric IS NOT NULL AND e.value IS NOT NULL
+            ORDER BY e.created_at DESC LIMIT 400`,
+        )
+        .bind(subjectId, this.userId),
+    );
+    const by = new Map<string, MetricSeries>();
+    for (const r of rows) {
+      let m = by.get(r.metric);
+      if (!m) {
+        m = { metric: r.metric, unit: r.unit, latest: { value: r.value, at: r.created_at }, points: [] };
+        by.set(r.metric, m);
+      }
+      if (m.points.length < perMetric) m.points.push({ value: r.value, at: r.created_at });
+      if (!m.unit && r.unit) m.unit = r.unit;
+    }
+    return [...by.values()];
+  }
+
+  /** Earliest and latest reading of one metric on a thing — what a schedule needs. */
+  async metricStats(subjectId: string, metric: string): Promise<{ latest: { value: number; at: number } | null; earliest: { value: number; at: number } | null }> {
+    const one = (dir: "ASC" | "DESC") =>
+      this.first<{ value: number; created_at: number }>(
+        this.d1
+          .prepare(
+            `SELECT e.value, e.created_at FROM entries e
+               JOIN entry_subjects es ON es.entry_id = e.id AND es.subject_id = ?
+              WHERE e.user_id = ? AND e.deleted_at IS NULL AND e.kind = 'value' AND e.metric = ? AND e.value IS NOT NULL
+              ORDER BY e.created_at ${dir} LIMIT 1`,
+          )
+          .bind(subjectId, this.userId, metric.toLowerCase()),
+      );
+    const [l, f] = await Promise.all([one("DESC"), one("ASC")]);
+    return {
+      latest: l ? { value: l.value, at: l.created_at } : null,
+      earliest: f ? { value: f.value, at: f.created_at } : null,
+    };
+  }
+
+  // -------------------------------------------------------------- schedules
+
+  private readonly SCHED_COLS =
+    "s.id, s.subject_id, s.context, s.label, s.every_days, s.every_value, s.metric, s.fixed_month, s.fixed_day, s.last_done_at, s.last_value, s.created_at, s.archived_at, j.name AS subject_name";
+
+  async listSchedules(subjectId: string | null = null, includeArchived = false): Promise<ScheduleRow[]> {
+    const sc = this.scope("s.context");
+    return this.all<ScheduleRow>(
+      this.d1
+        .prepare(
+          `SELECT ${this.SCHED_COLS} FROM schedules s
+             LEFT JOIN subjects j ON j.id = s.subject_id AND j.user_id = s.user_id
+            WHERE s.user_id = ?${sc.sql}` +
+            (subjectId ? " AND s.subject_id = ?" : "") +
+            (includeArchived ? "" : " AND s.archived_at IS NULL") +
+            " ORDER BY s.label COLLATE NOCASE",
+        )
+        .bind(this.userId, ...sc.args, ...(subjectId ? [subjectId] : [])),
+    );
+  }
+
+  async schedule(id: string): Promise<ScheduleRow | null> {
+    return this.first<ScheduleRow>(
+      this.d1
+        .prepare(
+          `SELECT ${this.SCHED_COLS} FROM schedules s
+             LEFT JOIN subjects j ON j.id = s.subject_id AND j.user_id = s.user_id
+            WHERE s.id = ? AND s.user_id = ?`,
+        )
+        .bind(id, this.userId),
+    );
+  }
+
+  async createSchedule(s: Omit<ScheduleRow, "id" | "created_at" | "archived_at" | "subject_name">): Promise<string> {
+    const id = newId();
+    await this.run(
+      this.d1
+        .prepare(
+          `INSERT INTO schedules
+             (id, user_id, subject_id, context, label, every_days, every_value, metric, fixed_month, fixed_day, last_done_at, last_value, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(id, this.userId, s.subject_id, normaliseContext(s.context), s.label.trim(),
+              s.every_days ?? null, s.every_value ?? null, s.metric ? s.metric.trim().toLowerCase() : null,
+              s.fixed_month ?? null, s.fixed_day ?? null, s.last_done_at ?? null, s.last_value ?? null, Date.now()),
+    );
+    return id;
+  }
+
+  async updateSchedule(id: string, patch: Partial<Omit<ScheduleRow, "id" | "created_at" | "subject_name">>): Promise<boolean> {
+    const sets: string[] = [];
+    const vals: unknown[] = [];
+    for (const [k, v] of Object.entries(patch)) {
+      if (v === undefined) continue;
+      sets.push(`${k} = ?`);
+      vals.push(k === "metric" && typeof v === "string" ? v.trim().toLowerCase() : v);
+    }
+    if (!sets.length) return true;
+    const res = await this.d1
+      .prepare(`UPDATE schedules SET ${sets.join(", ")} WHERE id = ? AND user_id = ?`)
+      .bind(...vals, id, this.userId)
+      .run();
+    readMeta(this.meter, res.meta);
+    return (res.meta?.changes ?? 0) > 0;
+  }
+
+  async deleteSchedule(id: string): Promise<boolean> {
+    const res = await this.d1.batch([
+      this.d1.prepare("UPDATE entries SET schedule_id = NULL WHERE schedule_id = ? AND user_id = ?").bind(id, this.userId),
+      this.d1.prepare("DELETE FROM schedules WHERE id = ? AND user_id = ?").bind(id, this.userId),
+    ]);
+    res.forEach((r) => readMeta(this.meter, r.meta));
+    return (res[res.length - 1]?.meta?.changes ?? 0) > 0;
+  }
+
+  // ------------------------------------------------------------ saved views
+
+  async listViews(): Promise<SavedView[]> {
+    const sc = this.scope();
+    return this.all<SavedView>(
+      this.d1
+        .prepare(`SELECT id, name, context, query, sort_order FROM saved_views WHERE user_id = ?${sc.sql} ORDER BY sort_order, name`)
+        .bind(this.userId, ...sc.args),
+    );
+  }
+
+  async createView(name: string, context: string, query: string): Promise<string> {
+    const id = newId();
+    await this.run(
+      this.d1
+        .prepare("INSERT INTO saved_views (id, user_id, context, name, query, sort_order, created_at) VALUES (?, ?, ?, ?, ?, 0, ?)")
+        .bind(id, this.userId, normaliseContext(context), name.trim(), query, Date.now()),
+    );
+    return id;
+  }
+
+  async deleteView(id: string): Promise<boolean> {
+    const res = await this.d1.prepare("DELETE FROM saved_views WHERE id = ? AND user_id = ?").bind(id, this.userId).run();
+    readMeta(this.meter, res.meta);
+    return (res.meta?.changes ?? 0) > 0;
   }
 
   // ----------------------------------------------------------------- people

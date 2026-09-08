@@ -16,7 +16,8 @@
 
 import { applySpoken } from "./spoken";
 import { worldOf } from "./db";
-import { Db, type SubjectRow } from "./db";
+import { Db, type EntryRow, type SubjectRow } from "./db";
+import { nextDue } from "./due";
 import { VERSION } from "./version";
 import { utcDay } from "./ids";
 
@@ -152,18 +153,85 @@ const TOOLS = [
   {
     name: "add_note",
     description:
-      "Log a note. Use this to record what was found or fixed, so it is in the thing's " +
-      "history next time.",
+      "Log something. kind decides what it is: note (default), todo (with due), appt (with " +
+      "starts), value (a reading: metric + value, e.g. odo 84200), spec (a fact about the " +
+      "thing: spec_key + spec_value, e.g. Tire size = 275/65R18). Use this to record what " +
+      "was found or fixed, so it is in the thing's history next time.",
     inputSchema: {
       type: "object",
       properties: {
         body: { type: "string" },
         context: { type: "string", enum: ["work", "personal"] },
         thing: { type: "string", description: "Name of a thing to attach it to" },
-        needs_followup: { type: "boolean" },
+        kind: { type: "string", enum: ["note", "todo", "appt", "value", "spec"] },
+        tags: { type: "array", items: { type: "string" }, description: "e.g. ['parts', 'warranty']" },
+        due: { type: "string", description: "For a todo: YYYY-MM-DD or ISO datetime" },
+        starts: { type: "string", description: "For an appt: ISO datetime" },
+        ends: { type: "string", description: "For an appt: ISO datetime (default one hour after starts)" },
+        metric: { type: "string", description: "For a value: odo, hours, psi…" },
+        value: { type: "number" },
+        unit: { type: "string" },
+        spec_key: { type: "string" },
+        spec_value: { type: "string" },
+        needs_followup: { type: "boolean", description: "Same as kind: todo" },
       },
       required: ["body", "context"],
     },
+  },
+  {
+    name: "list_due",
+    description:
+      "What is due: open to-dos by due date, upcoming appointments, and schedules " +
+      "(oil change every 5,000 mi, filter every 90 days) with when they come due next.",
+    inputSchema: { type: "object", properties: {
+        context: {
+          type: "string", enum: ["work", "personal"],
+          description: "Which world: work or personal. They never mix. If the user has " +
+            "not made it clear which one they mean, ASK before calling.",
+        },
+      }, required: ["context"] },
+  },
+  {
+    name: "add_schedule",
+    description:
+      "Add a recurring rule on a thing: every N days, every N of a metric (miles, hours), " +
+      "or a fixed date each year. Both every_days and every_value means whichever first.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        context: { type: "string", enum: ["work", "personal"] },
+        thing: { type: "string", description: "Name of the thing it is on" },
+        label: { type: "string", description: "e.g. 'Oil change'" },
+        every_days: { type: "number" },
+        every_value: { type: "number", description: "e.g. 5000" },
+        metric: { type: "string", description: "e.g. odo — required with every_value" },
+        fixed_month: { type: "number", description: "1-12, with fixed_day: yearly on that date" },
+        fixed_day: { type: "number" },
+        last_done: { type: "string", description: "YYYY-MM-DD it was last done, if known" },
+        last_value: { type: "number", description: "the reading when it was last done" },
+      },
+      required: ["context", "label"],
+    },
+  },
+  {
+    name: "find_by_tag",
+    description: "Entries carrying every one of the given tags, newest first. Call with no tags to list the tags that exist.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        context: { type: "string", enum: ["work", "personal"] },
+        tags: { type: "array", items: { type: "string" } },
+        kind: { type: "string", enum: ["note", "todo", "appt", "value", "spec"] },
+      },
+      required: ["context"],
+    },
+  },
+  {
+    name: "get_inbox",
+    description: "Captures waiting to be filed — no thing, no tags yet. Offer to file them.",
+    inputSchema: { type: "object", properties: {
+        context: { type: "string", enum: ["work", "personal"] },
+      }, required: ["context"] },
   },
 ];
 
@@ -205,11 +273,30 @@ function ambiguity(needle: string, choices: SubjectRow[]): string {
 
 const when = (ms: number) => new Date(ms).toISOString().replace("T", " ").slice(0, 16);
 
-function listNotes(rows: { created_at: number; context: string; body: string | null; is_open: number }[]) {
+const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+
+function listNotes(rows: EntryRow[]) {
   if (!rows.length) return "Nothing found.";
   return rows
-    .map((e) => `${when(e.created_at)}  [${e.context}${e.is_open ? " · open" : ""}] ${e.body ?? "(photo)"}`)
+    .map((e) => {
+      const bits = [e.kind !== "note" ? e.kind : null];
+      if (e.kind === "todo") bits.push(e.done_at ? `done ${day(e.done_at)}` : e.due_at ? `due ${day(e.due_at)}` : "open");
+      if (e.kind === "appt" && e.starts_at) bits.push(when(e.starts_at));
+      if (e.kind === "value" && e.metric) bits.push(`${e.metric} ${e.value ?? ""}${e.unit ?? ""}`);
+      if (e.kind === "spec" && e.spec_key) bits.push(`${e.spec_key}: ${e.spec_value ?? ""}`);
+      const things = (e.subjects || []).map((s) => "@" + s.name).join(" ");
+      const tags = (e.tags || []).map((t) => "#" + t).join(" ");
+      return `${when(e.created_at)}  [${bits.filter(Boolean).join(" · ") || e.context}] ${e.body ?? "(photo)"}` +
+        (things || tags ? `  ${things} ${tags}`.trimEnd() : "");
+    })
     .join("\n");
+}
+
+/** "2026-09-12" or an ISO datetime → epoch ms, or null. */
+function parseWhen(v: unknown, hour = 9): number | null {
+  if (typeof v !== "string" || !v.trim()) return null;
+  const t = Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(v) ? `${v}T${String(hour).padStart(2, "0")}:00:00` : v);
+  return Number.isNaN(t) ? null : t;
 }
 
 async function callTool(db: Db, name: string, args: Json): Promise<{ content: unknown[]; isError?: boolean }> {
@@ -282,8 +369,20 @@ async function callTool(db: Db, name: string, args: Json): Promise<{ content: un
       const parts = d.children.length
         ? `\nParts (${d.children.length}):\n${d.children.map((k) => `  ${k.name}`).join("\n")}\n`
         : "";
+      const tags = d.tags.length ? `Tags: ${d.tags.map((t) => "#" + t).join(" ")}\n` : "";
+      const values = d.metrics.length
+        ? `\nLatest readings:\n${d.metrics.map((m) => `  ${m.metric}: ${m.latest.value}${m.unit ?? ""} (${day(m.latest.at)})`).join("\n")}\n`
+        : "";
+      const scheds = [];
+      for (const sc of d.schedules) {
+        const stats = sc.metric ? await db.metricStats(d.id, sc.metric) : null;
+        const n = nextDue(sc, stats);
+        scheds.push(`  ${sc.label}: next ${n.when ? day(n.when) : "unknown"}` +
+          (n.by_value?.left != null ? ` (${n.by_value.left} ${sc.metric} to go)` : ""));
+      }
+      const schedules = scheds.length ? `\nSchedules:\n${scheds.join("\n")}\n` : "";
       return text(
-        `${d.name} — ${d.type}, ${d.context}\n${lives}${parts}\nDetails:\n${attrs}\n\n` +
+        `${d.name} — ${d.type}, ${d.context}\n${lives}${tags}${parts}\nSpecs:\n${attrs}\n${values}${schedules}\n` +
           `History (${d.entries.length}):\n${listNotes(d.entries)}`,
       );
     }
@@ -339,6 +438,10 @@ async function callTool(db: Db, name: string, args: Json): Promise<{ content: un
       // The id is generated here for the same reason the phone generates its own:
       // the write is then idempotent and a retry cannot duplicate it.
       const id = crypto.randomUUID();
+      const kind = typeof args.kind === "string" ? args.kind : args.needs_followup === true ? "todo" : "note";
+      const starts = parseWhen(args.starts);
+      const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+      const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
       await db.createEntry({
         id,
         created_at: Date.now(),
@@ -346,8 +449,19 @@ async function callTool(db: Db, name: string, args: Json): Promise<{ content: un
         body,
         lat: null,
         lng: null,
-        is_open: args.needs_followup === true,
+        is_open: kind === "todo",
+        kind,
+        due_at: parseWhen(args.due),
+        starts_at: starts,
+        ends_at: parseWhen(args.ends) ?? (starts ? starts + 3_600_000 : null),
+        metric: str(args.metric),
+        value: num(args.value),
+        unit: str(args.unit),
+        spec_key: str(args.spec_key),
+        spec_value: str(args.spec_value),
       });
+      const tags = Array.isArray(args.tags) ? (args.tags as unknown[]).filter((t): t is string => typeof t === "string") : [];
+      if (tags.length) await db.setEntryTags(id, tags);
       // "New item X" spoken through Claude works the same as from the phone.
       const made = await applySpoken(db, body, context, null);
       await db.linkEntrySubjects(id, made.subject_ids);
@@ -359,11 +473,72 @@ async function callTool(db: Db, name: string, args: Json): Promise<{ content: un
         const found = await findThing(db, needle);
         if (found.thing) {
           await db.linkEntrySubjects(id, [found.thing.id]);
-          return text(`Logged against ${found.thing.name}.`);
+          if (kind === "spec" && str(args.spec_key)) {
+            await db.setAttribute(found.thing.id, String(args.spec_key), str(args.spec_value));
+          }
+          return text(`Logged ${kind === "note" ? "" : kind + " "}against ${found.thing.name}.`);
         }
         return text(`Logged, but not attached to anything.\n\n${ambiguity(needle, found.choices)}`);
       }
-      return text("Logged.");
+      return text(kind === "note" ? "Logged." : `Logged as a ${kind}.`);
+    }
+
+    case "list_due": {
+      const now = Date.now();
+      const rows = await db.dueEntries(now - 86_400_000, 100);
+      const scheds = await db.listSchedules(null);
+      const lines: string[] = [];
+      for (const sc of scheds) {
+        const stats = sc.subject_id && sc.metric ? await db.metricStats(sc.subject_id, sc.metric) : null;
+        const n = nextDue(sc, stats);
+        lines.push(`  ${sc.label}${sc.subject_name ? " @" + sc.subject_name : ""}: ` +
+          (n.when ? `${day(n.when)}${n.days_left != null && n.days_left < 0 ? " (overdue)" : ""}` : "no reading yet") +
+          (n.by_value?.left != null ? `, ${n.by_value.left} ${sc.metric} to go` : ""));
+      }
+      return text(
+        (rows.length ? `To-dos and appointments (${rows.length}):\n${listNotes(rows)}` : "No to-dos or appointments due.") +
+        (lines.length ? `\n\nSchedules:\n${lines.join("\n")}` : ""),
+      );
+    }
+
+    case "add_schedule": {
+      const label = String(args.label ?? "").trim();
+      const context = String(args.context ?? "").trim();
+      if (!label || !context) return problem("A schedule needs a label and a context.");
+      let subjectId: string | null = null, thingName = "";
+      if (args.thing) {
+        const found = await findThing(db, String(args.thing));
+        if (!found.thing) return problem(ambiguity(String(args.thing), found.choices));
+        subjectId = found.thing.id; thingName = found.thing.name;
+      }
+      const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+      const everyValue = num(args.every_value), metric = typeof args.metric === "string" ? args.metric : null;
+      if (everyValue && !metric) return problem("every_value needs a metric, e.g. odo.");
+      if (!num(args.every_days) && !everyValue && !(num(args.fixed_month) && num(args.fixed_day))) {
+        return problem("Say how often: every_days, every_value + metric, or fixed_month + fixed_day.");
+      }
+      await db.createSchedule({
+        subject_id: subjectId, context, label,
+        every_days: num(args.every_days), every_value: everyValue, metric,
+        fixed_month: num(args.fixed_month), fixed_day: num(args.fixed_day),
+        last_done_at: parseWhen(args.last_done), last_value: num(args.last_value),
+      });
+      return text(`Added schedule "${label}"${thingName ? " on " + thingName : ""}.`);
+    }
+
+    case "find_by_tag": {
+      const tags = Array.isArray(args.tags) ? (args.tags as unknown[]).filter((t): t is string => typeof t === "string") : [];
+      if (!tags.length) {
+        const all = await db.listTags();
+        return text(all.length ? all.map((t) => `#${t.name} (${t.count})`).join("\n") : "No tags yet.");
+      }
+      const rows = await db.queryEntries({ tags, kind: typeof args.kind === "string" ? args.kind : null, limit: 50 });
+      return text(`${rows.length} with ${tags.map((t) => "#" + t).join(" + ")}:\n\n${listNotes(rows)}`);
+    }
+
+    case "get_inbox": {
+      const rows = await db.inboxEntries(50);
+      return text(rows.length ? `${rows.length} waiting to be filed:\n\n${listNotes(rows)}` : "Inbox is empty.");
     }
 
     default:

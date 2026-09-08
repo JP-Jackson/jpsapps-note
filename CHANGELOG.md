@@ -3,6 +3,20 @@
 Mirrors the list shown in Settings. One line per release — enough to answer
 "did the thing I asked for actually ship", not full release notes.
 
+## 2.0.0
+Every capture has a kind: note, to-do, appointment, value (a reading off a thing —
+odo 84,200) or spec (a fact about a thing — tire size). One line does it:
+`@compressor2 contactor chattering #parts !fri` files it, tags it and makes it a
+to-do due Friday; chips under the line show what was understood and the kind chips
+override it. Tags cut across the tree. Four doors onto the same rows — Tree, Tags,
+Stream and Table with CSV and saved views. Due gathers to-dos, appointments and
+schedules (every N days, every N miles, or a yearly date; both means whichever
+first) with progress bars and a Done that resets the next. Inbox holds bare notes
+until they are filed. Today lands first: overdue, this week, inbox, recent. Tap any
+row to edit everything about it; delete and done get an Undo instead of a confirm.
+Appointments and dated to-dos link into Google Calendar or Outlook. Claude's tools
+learned kinds, tags, schedules and the inbox.
+
 ## 1.22.0
 Places can be corrected. A pin dropped on the wrong building, or a name typed in a
 hurry, is fixed with the pencil on its row — the same map, opened on the place, with

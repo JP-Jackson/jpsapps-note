@@ -9,6 +9,8 @@ and a reason, follow it.
 
 Phases 1–6 of `NOTE_SPEC.md` §11 are built and live at
 [note.jpsapps.com](https://note.jpsapps.com). Every push to `main` deploys.
+v2.0.0 added kinds (note, to-do, appointment, value, spec), tags, schedules, Due,
+Inbox and Today — see `HANDOFF.md` for the model and `CHANGELOG.md` for the summary.
 
 See `HANDOFF.md` for what is left, what bit us, and the design decisions that differ
 from the spec (and why).

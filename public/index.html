@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#16222E">
-<meta name="app-version" content="1.24.0">
+<meta name="app-version" content="2.0.0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Note">
@@ -810,6 +810,161 @@ addEventListener("appinstalled", function () {
     padding:12px 14px;width:100%;margin-bottom:12px;cursor:pointer;
     font:600 14px var(--font-ui);display:none}
   #stale.on{display:block}
+
+  /* ---------- v2: kinds, chips, tables, due, inbox, today ---------- */
+  .kb{flex:none;width:30px;height:22px;border-radius:6px;display:inline-flex;align-items:center;
+    justify-content:center;font:700 9px/1 var(--font-mono);letter-spacing:.05em;
+    background:var(--bg);color:var(--ink-2);border:1px solid var(--line)}
+  .kb.todo{background:#d9931a22;color:var(--warn);border-color:transparent}
+  .kb.appt{background:#2c7bc422;color:var(--blue);border-color:transparent}
+  .kb.spec{background:#1f7a4d22;color:var(--ok);border-color:transparent}
+  .kb.value{background:var(--card);color:var(--ink);border-color:var(--line)}
+  .kb.done{background:#1f7a4d22;color:var(--ok);border-color:transparent}
+  .kb.sched{background:#d9931a22;color:var(--warn);border-color:transparent}
+  .entry{align-items:flex-start}
+  .entry .sub{display:flex;flex-wrap:wrap;gap:3px 10px;margin-top:3px;
+    font:500 11px/1.5 var(--font-mono);color:var(--ink-2)}
+  .entry .sub b{font-weight:500;color:var(--blue)}
+  .entry .sub .due{color:var(--warn)}
+  .entry .sub .due.over{color:var(--bad)}
+  .entry.done .what{color:var(--ink-2)}
+  .entry.done .what > span:first-child{text-decoration:line-through}
+  .entry.todo{border-left:4px solid var(--warn)}
+  .entry.todo.done{border-left-color:var(--ok)}
+  .entry .chk{flex:none;width:24px;height:24px;border-radius:7px;border:1.5px solid var(--line);
+    background:var(--card);color:var(--ok);font-size:14px;line-height:1;cursor:pointer;
+    display:inline-flex;align-items:center;justify-content:center;margin-top:-1px}
+  .entry .chk.on{background:#1f7a4d22;border-color:var(--ok)}
+  .entry.unrev{border-style:dashed}
+
+  .kinds{display:flex;gap:6px;margin:0 0 10px;flex-wrap:wrap}
+  .kinds .chip{flex:0 0 auto;min-width:0;padding:8px 12px;font-size:13px;border-radius:8px}
+  .kfields{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+  .kfields .f{display:flex;flex-direction:column;gap:3px}
+  .kfields .f.wide{grid-column:1 / -1}
+  .kfields label{font:500 10px/1.4 var(--font-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+  .kfields input,.kfields select,.tagsin{width:100%;border:1px solid var(--line);border-radius:8px;
+    background:var(--card);color:var(--ink);padding:10px 11px;font:400 15px var(--font-ui)}
+  .kfields input:focus,.tagsin:focus{outline:2px solid var(--blue);outline-offset:-1px}
+  .tagsin{margin-bottom:10px}
+  #parsed{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+  #parsed:empty{display:none}
+  .pchip{display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border-radius:999px;
+    font:500 12px/1.3 var(--font-ui);border:1px solid var(--line);background:var(--card);color:var(--ink);
+    cursor:pointer}
+  .pchip.kind{background:var(--navy);color:#fff;border-color:var(--navy)}
+  .pchip.thing{border-color:var(--blue);color:var(--blue)}
+  .pchip.tag{background:var(--bg)}
+  .pchip.due{background:#d9931a22;color:var(--warn);border-color:transparent}
+  .pchip.warn{background:#d9483c1a;color:var(--bad);border-color:transparent}
+  .pchip.sug{border-style:dashed;color:var(--ink-2)}
+  .syntax{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:13px;color:var(--ink-2);
+    background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:12px}
+  .syntax code{font:500 12px/1.6 var(--font-mono);color:var(--ink)}
+
+  .tagcloud{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+  .tagcloud button{padding:8px 12px;border-radius:999px;border:1px solid var(--line);
+    background:var(--card);color:var(--ink);font:500 14px var(--font-ui);cursor:pointer;
+    display:inline-flex;gap:6px;align-items:center}
+  .tagcloud button small{font:500 11px var(--font-mono);color:var(--ink-2)}
+  .tagcloud button.on{background:var(--navy);color:#fff;border-color:var(--navy)}
+  .tagcloud button.on small{color:#fff;opacity:.8}
+  .tagcloud button.mg{border-style:dashed;color:var(--ink-2)}
+
+  .tbl{overflow-x:auto;margin:0 -16px;padding:0 16px 4px;-webkit-overflow-scrolling:touch}
+  table.grid{border-collapse:collapse;font-size:13px;min-width:600px;width:100%;background:var(--card);
+    border:1px solid var(--line);border-radius:10px}
+  table.grid th{font:600 10px/1.4 var(--font-mono);letter-spacing:.08em;text-transform:uppercase;
+    color:var(--ink-2);text-align:left;padding:8px;border-bottom:2px solid var(--line);white-space:nowrap;
+    cursor:pointer;position:sticky;top:0;background:var(--card)}
+  table.grid th.on{color:var(--blue)}
+  table.grid td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+  table.grid td.mono{font:400 11px/1.6 var(--font-mono);white-space:nowrap;color:var(--ink-2)}
+  table.grid tr{cursor:pointer}
+  .filters{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+  .filters .chip{flex:0 0 auto;min-width:0;padding:8px 11px;font-size:12px;border-radius:8px}
+  .filters input[type=search]{flex:1 1 140px;margin:0;padding:10px 12px;font-size:14px}
+  .savedviews{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+  .savedviews button{padding:7px 11px;border-radius:999px;border:1px solid var(--blue);
+    background:var(--card);color:var(--blue);font:500 13px var(--font-ui);cursor:pointer}
+  .savedviews button.x{border-color:var(--line);color:var(--ink-2)}
+
+  .duegroup h2{margin-top:18px}
+  .duegroup h2.over{color:var(--bad)}
+  .duegroup h2.soon{color:var(--warn)}
+  .sched{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:11px 12px;
+    margin-bottom:8px;display:flex;gap:10px;align-items:flex-start;cursor:pointer}
+  .sched .body{flex:1;min-width:0}
+  .sched .t{display:flex;justify-content:space-between;gap:8px;font-size:15px}
+  .sched .t .w{font:500 11px/1.6 var(--font-mono);color:var(--ink-2);white-space:nowrap}
+  .sched .t .w.over{color:var(--bad)}.sched .t .w.soon{color:var(--warn)}
+  .sched .m{font:500 11px/1.6 var(--font-mono);color:var(--ink-2);margin-top:2px}
+  .sched .m b{font-weight:500;color:var(--blue)}
+  .bar2{height:6px;border-radius:3px;background:var(--line);overflow:hidden;margin-top:7px}
+  .bar2 i{display:block;height:100%;background:var(--blue)}
+  .bar2 i.soon{background:var(--warn)}.bar2 i.over{background:var(--bad)}
+  .sched .dn{flex:none;border:1px solid var(--line);background:var(--bg);color:var(--ink);
+    border-radius:8px;padding:8px 10px;font:600 12px var(--font-ui);cursor:pointer}
+
+  .calinks{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+  .calinks a{font:600 12px var(--font-ui);color:var(--blue);text-decoration:none;border:1px solid var(--line);
+    border-radius:8px;padding:8px 10px;background:var(--card)}
+
+  .inb{background:var(--card);border:1px dashed var(--line);border-radius:12px;padding:12px;margin-bottom:10px}
+  .inb .raw{font-size:15px;line-height:1.45;margin-bottom:6px}
+  .inb .src{font:500 11px/1.6 var(--font-mono);color:var(--ink-2);display:flex;justify-content:space-between}
+  .inb .chips{margin:6px 0 8px}
+  .inb .actions{margin-top:6px}
+
+  .vals{display:flex;gap:10px;margin:0 0 16px;overflow-x:auto}
+  .val{flex:1 0 140px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+  .val .m{font:500 10px/1.4 var(--font-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+  .val .n{font:500 22px/1.2 var(--font-mono);margin:2px 0}
+  .val .u{font-size:12px;color:var(--ink-2)}
+  .val canvas{width:100%;height:34px;margin-top:6px;display:block}
+  .tagrow{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px}
+  .tagrow span{font:500 12px var(--font-ui);padding:4px 9px;border-radius:999px;background:var(--bg);
+    border:1px solid var(--line);color:var(--ink)}
+
+  #fab{position:fixed;right:16px;bottom:calc(var(--nav-h) + 16px);z-index:28;width:54px;height:54px;
+    border-radius:16px;border:0;background:var(--blue);color:#fff;font:400 32px/1 var(--font-ui);
+    box-shadow:0 6px 16px #0006;cursor:pointer;display:flex;align-items:center;justify-content:center}
+  #fab[hidden]{display:none}
+  #fabMenu{position:fixed;right:16px;bottom:calc(var(--nav-h) + 78px);z-index:29;background:var(--card);
+    border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 30px #0005;min-width:200px;padding:6px}
+  #fabMenu button{display:block;width:100%;text-align:left;background:none;border:0;color:var(--ink);
+    padding:11px 12px;border-radius:8px;font:500 15px var(--font-ui);cursor:pointer}
+  #fabMenu button:hover{background:var(--bg)}
+  #fabMenu .mh{font:600 10px/1.4 var(--font-mono);letter-spacing:.1em;text-transform:uppercase;
+    color:var(--ink-2);padding:6px 12px 2px}
+  #toast{position:fixed;left:16px;right:16px;bottom:calc(var(--nav-h) + 16px);z-index:60;
+    background:var(--navy);color:#fff;border-radius:12px;padding:12px 14px;display:flex;align-items:center;
+    gap:12px;font-size:14px;box-shadow:0 8px 24px #0006;max-width:528px;margin:0 auto}
+  #toast[hidden]{display:none}
+  #toast .msg{flex:1}
+  #toast button{background:none;border:0;color:#8ab4dd;font:700 14px var(--font-ui);cursor:pointer;padding:4px}
+
+  .today h2{margin-top:20px}
+  .today .stat{display:flex;gap:8px;margin-bottom:12px}
+  .today .stat button{flex:1;background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:12px;text-align:left;cursor:pointer;color:var(--ink)}
+  .today .stat .n{font:500 24px/1.1 var(--font-mono)}
+  .today .stat .l{font:500 10px/1.6 var(--font-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+  .today .stat button.hot .n{color:var(--bad)}
+  .today .stat button.warm .n{color:var(--warn)}
+  #hdrSearch{background:none;border:0;color:#fff;cursor:pointer;width:38px;height:38px;
+    display:flex;align-items:center;justify-content:center;padding:0;margin-left:2px}
+  #hdrSearch svg{width:22px;height:22px}
+  #sched{position:fixed;inset:0;z-index:45;background:var(--bg);overflow-y:auto;padding:0 0 40px}
+  #sched .bar{background:var(--navy);color:#fff;display:flex;align-items:center;gap:12px;
+    padding:12px 16px;padding-top:calc(12px + env(safe-area-inset-top));position:sticky;top:0}
+  #sched .bar button{background:none;border:0;color:#fff;font:600 15px var(--font-ui);cursor:pointer;padding:4px 0}
+  #sched .body{max-width:560px;margin:0 auto;padding:16px}
+  #detail .kinds .chip,#sched .kinds .chip{padding:8px 11px}
+  .things-pick{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+  .things-pick .pchip.on{background:var(--blue);color:#fff;border-color:var(--blue)}
+  .swrap{position:relative}
+  body.capturing main{padding-bottom:calc(var(--nav-h) + 230px)}
 </style>
 </head>
 <body>
@@ -848,6 +1003,9 @@ addEventListener("appinstalled", function () {
     <button id="status" title="Tap to sync"><span id="dot"></span><span id="statusText">SYNCED</span></button>
     <span class="host">jpsapps.com</span>
   </span>
+  <button id="hdrSearch" aria-label="Search">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+  </button>
   <button id="gear" aria-label="Settings">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
          stroke-linecap="round" stroke-linejoin="round">
@@ -865,6 +1023,11 @@ addEventListener("appinstalled", function () {
 <main>
   <button id="stale">A newer version is available — tap to reload</button>
   <div class="err" id="err"></div>
+
+  <!-- ============ TODAY ============ -->
+  <section id="view-today" hidden>
+    <div class="today" id="todayBody"><div class="empty">Loading…</div></div>
+  </section>
 
   <!-- ============ CAPTURE ============ -->
   <section id="view-capture">
@@ -896,31 +1059,77 @@ addEventListener("appinstalled", function () {
     <input type="file" id="filePick" accept="image/*" capture="environment" hidden>
     <input type="file" id="docPick" multiple hidden>
 
-    <textarea id="body" placeholder="What happened? Dictate with the keyboard mic. Say &quot;new item X&quot; or &quot;new person X&quot; to add one."></textarea>
+    <textarea id="body" placeholder="What happened? @thing #tag !fri, a number, a time. Dictate with the keyboard mic."></textarea>
+
+    <!-- Kind is guessed from the line; these chips are the override. -->
+    <div class="kinds" id="kinds">
+      <button class="chip" data-kind="note" aria-pressed="true">Note</button>
+      <button class="chip" data-kind="todo" aria-pressed="false">To-do</button>
+      <button class="chip" data-kind="appt" aria-pressed="false">Appointment</button>
+      <button class="chip" data-kind="value" aria-pressed="false">Value</button>
+      <button class="chip" data-kind="spec" aria-pressed="false">Spec</button>
+      <button class="chip" id="syntaxBtn" aria-pressed="false">?</button>
+    </div>
+    <div class="syntax" id="syntax" hidden>
+      <code>@name</code><span>file it on a thing — a prefix is enough</span>
+      <code>#tag</code><span>tag it, as many as you like</span>
+      <code>!fri  !3d  !10/12</code><span>a to-do, due then</span>
+      <code>tue 2pm</code><span>an appointment, pushed to your calendar</span>
+      <code>odo 84200</code><span>a value: metric then number</span>
+      <code>spec key value</code><span>a spec, written on the thing</span>
+      <code>new item X</code><span>adds a thing and files this on it</span>
+    </div>
+    <div class="kfields" id="kfields" hidden></div>
+    <input class="tagsin" id="tagsIn" placeholder="tags, comma separated" autocomplete="off" list="tagList">
+    <datalist id="tagList"></datalist>
 
     <h2>Just captured</h2>
     <div id="log"><div class="empty">Nothing yet.</div></div>
   </section>
 
-  <!-- ============ DAY LOG ============ -->
-  <section id="view-log" hidden>
-    <div class="stepper">
-      <button id="dayPrev" aria-label="Previous day">&lsaquo;</button>
-      <span class="label" id="dayLabel">Today</span>
-      <button id="dayNext" aria-label="Next day">&rsaquo;</button>
+  <!-- ============ BROWSE: four doors to the same rows ============ -->
+  <section id="view-browse" hidden>
+    <div class="chips" id="browseMode" style="margin-bottom:12px">
+      <button class="chip" data-bmode="tree" aria-pressed="true">Tree</button>
+      <button class="chip" data-bmode="tags" aria-pressed="false">Tags</button>
+      <button class="chip" data-bmode="stream" aria-pressed="false">Stream</button>
+      <button class="chip" data-bmode="table" aria-pressed="false">Table</button>
     </div>
-    <div id="dayList"><div class="empty">Loading…</div></div>
-  </section>
 
-  <!-- ============ OPEN ITEMS ============ -->
-  <section id="view-open" hidden>
-    <h2>Open follow-ups — oldest first</h2>
-    <div id="openList"><div class="empty">Loading…</div></div>
-  </section>
+    <div id="pane-tags" hidden>
+      <div class="tagcloud" id="tagCloud"><div class="empty">Loading…</div></div>
+      <p class="hint" id="tagHint">Tap a tag. Tap a second to narrow to both.</p>
+      <div id="tagList2"></div>
+    </div>
 
-  <!-- ============ SUBJECTS ============ -->
-  <section id="view-subjects" hidden>
-    <button class="btn" id="addSubject" style="margin-bottom:14px">+ Add an item</button>
+    <div id="pane-stream" hidden>
+      <div class="stepper">
+        <button id="dayPrev" aria-label="Previous day">&lsaquo;</button>
+        <span class="label" id="dayLabel">Today</span>
+        <button id="dayNext" aria-label="Next day">&rsaquo;</button>
+      </div>
+      <div id="dayList"><div class="empty">Loading…</div></div>
+    </div>
+
+    <div id="pane-table" hidden>
+      <div class="savedviews" id="savedViews"></div>
+      <div class="filters" id="tblFilters">
+        <input type="search" id="tblQ" placeholder="Search text, spec, tag…" autocomplete="off">
+        <button class="chip" data-tkind="" aria-pressed="true">All</button>
+        <button class="chip" data-tkind="note" aria-pressed="false">Notes</button>
+        <button class="chip" data-tkind="todo" aria-pressed="false">To-dos</button>
+        <button class="chip" data-tkind="appt" aria-pressed="false">Appts</button>
+        <button class="chip" data-tkind="value" aria-pressed="false">Values</button>
+        <button class="chip" data-tkind="spec" aria-pressed="false">Specs</button>
+      </div>
+      <div class="tbl" id="tblWrap"><div class="empty">Loading…</div></div>
+      <div class="actions" style="margin-top:10px">
+        <button class="btn sm ghost" id="saveView">Save this view</button>
+        <a class="btn sm ghost" id="csvLink" href="#" style="text-align:center;text-decoration:none">Download CSV</a>
+      </div>
+    </div>
+
+    <div id="pane-tree">
     <!-- Tree by default: the nesting is the thing that was missing, and a flat list
          of forty names is what it was missing from. The flat list stays because it
          is the faster way to find one thing when you already know its name. -->
@@ -930,6 +1139,7 @@ addEventListener("appinstalled", function () {
       <button class="chip" data-tmode="people" aria-pressed="false">People</button>
     </div>
     <div id="subjectList"><div class="empty">Loading…</div></div>
+    <button class="btn ghost" id="addSubject" style="margin:14px 0">+ Add an item</button>
     <h2>Bulk add</h2>
     <p class="empty" style="padding-top:0">Paste a list Claude structured for you — one per line as
       <code>Name | type | context</code>, or JSON.</p>
@@ -945,14 +1155,39 @@ addEventListener("appinstalled", function () {
     <p class="empty" style="padding-top:0">Paste an HTML or text log — a Base44 write-up,
       say — and it becomes dated entries you can search.</p>
     <button class="btn ghost sm" id="openNotesImport">Paste a log</button>
+    </div>
+  </section>
+
+  <!-- ============ DUE ============ -->
+  <section id="view-due" hidden>
+    <div class="duegroup" id="dueBody"><div class="empty">Loading…</div></div>
+  </section>
+
+  <!-- ============ INBOX ============ -->
+  <section id="view-inbox" hidden>
+    <p class="hint">Captures that landed without a thing or a tag. Accept as is, or fix and file.</p>
+    <div id="inboxList"><div class="empty">Loading…</div></div>
   </section>
 
   <!-- ============ SEARCH ============ -->
   <section id="view-search" hidden>
-    <input type="search" id="q" placeholder="Search notes…" autocomplete="off">
+    <input type="search" id="q" placeholder="Search notes, things, tags, specs…" autocomplete="off">
     <div id="searchList"><div class="empty">Type at least 2 characters.</div></div>
   </section>
 </main>
+
+<button id="fab" aria-label="Add" hidden>+</button>
+<div id="fabMenu" hidden></div>
+<div id="toast" hidden><span class="msg"></span><button id="toastUndo">Undo</button></div>
+
+<!-- A schedule: a rule on a thing. -->
+<div id="sched" hidden>
+  <div class="bar">
+    <button id="schedBack">&lsaquo; Cancel</button>
+    <strong style="font-size:15px" id="schedTitle">Schedule</strong>
+  </div>
+  <div class="body" id="schedBody"></div>
+</div>
 
 <!-- ============ ENTRY DETAIL ============ -->
 <div id="detail" hidden>
@@ -1187,6 +1422,7 @@ addEventListener("appinstalled", function () {
     </div>
     <div class="chips" id="linkChips"></div>
   </div>
+  <div id="parsed"></div>
   <div class="doit">
     <button id="flagBtn" class="sq" aria-pressed="false" title="Needs follow-up">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4h13l-2 4 2 4H5"/></svg>
@@ -1202,21 +1438,21 @@ addEventListener("appinstalled", function () {
 </div>
 
 <nav>
+  <button data-view="today">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>
+    Today</button>
   <button data-view="capture" aria-current="true">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>
     Capture</button>
-  <button data-view="log">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16M4 12h16M4 19h10"/></svg>
-    Log</button>
-  <button data-view="open">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-    Open<span class="badge" id="openBadge" hidden>0</span></button>
-  <button data-view="subjects">
+  <button data-view="browse">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg>
-    Places</button>
-  <button data-view="search">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
-    Search</button>
+    Browse</button>
+  <button data-view="due">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+    Due<span class="badge" id="openBadge" hidden>0</span></button>
+  <button data-view="inbox">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13l2-8h14l2 8v6H3z"/><path d="M3 13h5l2 3h4l2-3h5"/></svg>
+    Inbox<span class="badge" id="inboxBadge" hidden>0</span></button>
 </nav>
 
 <script>
@@ -1450,8 +1686,11 @@ function setWorld(next) {
   loadPlaces().then(suggestPlace);
   loadSubjects();
   loadRecent();
-  loadOpenCount();
+  loadCounts();
+  loadKnownTags();
   loadActivity();
+  tagSel = [];
+  savedViews = [];
   refreshCurrentView();
 }
 $("chips").addEventListener("click", (e) => {
@@ -1465,9 +1704,282 @@ paintChips();
    the thumb zone that stays lit while set. */
 let flagged = false;
 $("flagBtn").addEventListener("click", () => {
-  flagged = !flagged;
-  $("flagBtn").setAttribute("aria-pressed", String(flagged));
+  cap.kind = effectiveKind() === "todo" ? "note" : "todo";
+  paintFields(); paintParsed();
 });
+
+/* ------------------------------------------------------------- v2: kinds
+   One line, parsed into chips. @thing files it, #tag tags it, !fri makes it a
+   to-do, a time makes it an appointment, "odo 84200" is a value, "spec key value"
+   writes a spec on the thing. The chips under the line show what was understood;
+   the kind chips are the override when the guess is wrong. */
+const KIND_NAME = { note: "Note", todo: "To-do", appt: "Appt", value: "Value", spec: "Spec" };
+const KIND_LONG = { note: "Note", todo: "To-do", appt: "Appointment", value: "Value", spec: "Spec" };
+const METRICS = ["odo", "odometer", "miles", "hours", "hrs", "psi", "temp", "amps", "volts", "kwh",
+  "gal", "gallons", "cycles", "rpm", "hz", "level", "pressure", "weight", "lbs", "kg"];
+const DOW = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+const DAY_MS = 86400000;
+const normName = (x) => String(x || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+/** "fri", "tomorrow", "3d", "2w", "10/12", "2026-10-12" → epoch ms at 9am local, or null. */
+function dayToken(tok) {
+  const t = String(tok || "").toLowerCase();
+  const base = new Date(); base.setHours(9, 0, 0, 0);
+  if (t === "today") return base.getTime();
+  if (t === "tomorrow" || t === "tmrw" || t === "tmw") return base.getTime() + DAY_MS;
+  const i = DOW.indexOf(t.slice(0, 3));
+  if (i >= 0 && /^(sun|mon|tue|wed|thu|fri|sat)/.test(t)) {
+    let dd = (i - base.getDay() + 7) % 7; if (!dd) dd = 7;
+    return base.getTime() + dd * DAY_MS;
+  }
+  let m = t.match(/^(\d+)([dwm])$/);
+  if (m) return base.getTime() + Number(m[1]) * (m[2] === "d" ? 1 : m[2] === "w" ? 7 : 30) * DAY_MS;
+  m = t.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/);
+  if (m) {
+    const y = m[3] ? (m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3])) : base.getFullYear();
+    const d = new Date(y, Number(m[1]) - 1, Number(m[2]), 9);
+    if (!m[3] && d.getTime() < Date.now() - DAY_MS) d.setFullYear(y + 1);
+    return d.getTime();
+  }
+  m = t.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 9).getTime();
+  return null;
+}
+
+/** A thing (or person) by a typed token: exact, then prefix, then contains. */
+function findByToken(tok) {
+  const n = normName(tok);
+  if (!n) return null;
+  const pool = [
+    ...subjects.filter((x) => !x.archived_at && x.context === context),
+    ...people.filter((x) => !x.archived_at && x.context === context).map((x) => ({ ...x, kind: "person" })),
+  ];
+  return pool.find((x) => normName(x.name) === n) ||
+    pool.find((x) => normName(x.name).startsWith(n)) ||
+    pool.find((x) => normName(x.name).includes(n)) || null;
+}
+
+function parseLine(text) {
+  let t = String(text || "");
+  const r = { kind: "note", thing: null, person: null, tags: [], due_at: null, starts_at: null, ends_at: null,
+    metric: null, value: null, unit: null, spec_key: null, spec_value: null, body: "", warn: [], guess: null };
+  if (!t.trim()) return r;
+  t = t.replace(/(^|\s)#([\w-]+)/g, (m, sp, tag) => { r.tags.push(tag.toLowerCase()); return sp; });
+  t = t.replace(/(^|\s)@([\w-]+)/g, (m, sp, name) => {
+    const hit = findByToken(name);
+    if (!hit) r.warn.push('no "' + name + '"');
+    else if (hit.kind === "person") r.person = hit;
+    else r.thing = hit;
+    return sp;
+  });
+  t = t.replace(/(^|\s)!(?:due\s+)?(\S+)/i, (m, sp, tok) => {
+    const d = dayToken(tok);
+    if (d) { r.kind = "todo"; r.due_at = d; return sp; }
+    r.warn.push('date? "' + tok + '"'); return sp;
+  });
+  t = t.replace(/\bspec:?\s+([\w /-]+?)\s*[:=]?\s+(\S.*)$/i, (m, k, v) => {
+    r.kind = "spec"; r.spec_key = k.trim(); r.spec_value = v.trim(); return "";
+  });
+  if (r.kind === "note") {
+    const mt = t.match(new RegExp("(^|\\s)(" + METRICS.join("|") + ")\\s*[:=]?\\s*(-?\\d[\\d,]*\\.?\\d*)\\s*([a-z°%/]+)?", "i"));
+    if (mt) {
+      r.kind = "value"; r.metric = mt[2].toLowerCase(); r.value = Number(mt[3].replace(/,/g, ""));
+      r.unit = mt[4] || null;
+      if (r.metric === "odometer") r.metric = "odo";
+    }
+  }
+  if (r.kind === "note") {
+    const ap = t.match(/\b(sun|mon|tue|wed|thu|fri|sat|today|tomorrow|tmrw)\w*\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s?(am|pm)\b/i) ||
+      t.match(/\b(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s?(am|pm)\b(?:\s+(sun|mon|tue|wed|thu|fri|sat|today|tomorrow|tmrw)\w*)?/i);
+    if (ap) {
+      const dayTok = ap.length === 5 ? ap[1] : ap[4];
+      const hh = ap.length === 5 ? ap[2] : ap[1], mm = ap.length === 5 ? ap[3] : ap[2], ampm = ap.length === 5 ? ap[4] : ap[3];
+      const base = new Date(dayTok ? dayToken(dayTok) : dayToken("today"));
+      let h = Number(hh) % 12 + (ampm.toLowerCase() === "pm" ? 12 : 0);
+      base.setHours(h, Number(mm || 0), 0, 0);
+      r.kind = "appt"; r.starts_at = base.getTime(); r.ends_at = base.getTime() + 3600000;
+    }
+  }
+  r.body = t.replace(/\s+/g, " ").trim();
+  if (!r.thing && r.kind !== "spec") {
+    // A thing named in the text without an @ is offered, not assumed.
+    const cands = linkCandidates(r.body, context).filter((x) => x.kind !== "person");
+    if (cands.length && normName(r.body).includes(normName(cands[0].name))) r.guess = cands[0];
+  }
+  return r;
+}
+
+/* Capture state: the parse of the current line, plus what the user overrode. */
+let cap = { kind: null, thing: null, touched: {}, p: null };
+let knownTags = [];
+
+function effectiveKind() { return cap.kind || (cap.p ? cap.p.kind : "note"); }
+function capThing() { return cap.thing || (cap.p && cap.p.thing) || (linkTo && linkTo.kind !== "person" ? linkTo : null); }
+
+const isoDate = (ms) => { const d = new Date(ms); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
+const isoLocal = (ms) => isoDate(ms) + "T" + hhmm(ms);
+const fromDate = (v) => (v ? new Date(v + "T09:00").getTime() : null);
+const fromLocal = (v) => (v ? new Date(v).getTime() : null);
+
+/** The fields a kind needs, under the line. The parse fills them; edits win. */
+/** The inputs a kind needs. `v` holds current values by field name, as strings. */
+function kindFieldsHtml(k, v) {
+  const f = (name, label, type, extra) =>
+    '<div class="f' + (extra && extra.wide ? " wide" : "") + '"><label>' + label + "</label>" +
+    '<input data-f="' + name + '" type="' + type + '" value="' + esc(v[name] == null ? "" : v[name]) + '"' +
+    (extra && extra.list ? ' list="metricList"' : "") + (extra && extra.ph ? ' placeholder="' + extra.ph + '"' : "") + "></div>";
+  if (k === "todo") return f("due", "Due", "date");
+  if (k === "appt") return f("starts", "Starts", "datetime-local") + f("ends", "Ends", "datetime-local");
+  if (k === "value") return f("metric", "Metric", "text", { list: true, ph: "odo" }) + f("value", "Value", "text", { ph: "84200" }) +
+    f("unit", "Unit", "text", { ph: "mi" }) + '<datalist id="metricList">' + METRICS.map((m) => '<option value="' + m + '">').join("") + "</datalist>";
+  if (k === "spec") return f("spec_key", "Spec", "text", { ph: "Tire size" }) + f("spec_value", "Value", "text", { ph: "275/65R18" });
+  return "";
+}
+
+function paintFields() {
+  const k = effectiveKind(), p = cap.p || {}, box = $("kfields");
+  const val = (name, fromParse) => (cap.touched[name] !== undefined ? cap.touched[name] : (fromParse == null ? "" : fromParse));
+  const h = kindFieldsHtml(k, {
+    due: val("due", p.due_at ? isoDate(p.due_at) : ""),
+    starts: val("starts", p.starts_at ? isoLocal(p.starts_at) : ""), ends: val("ends", p.ends_at ? isoLocal(p.ends_at) : ""),
+    metric: val("metric", p.metric), value: val("value", p.value), unit: val("unit", p.unit),
+    spec_key: val("spec_key", p.spec_key), spec_value: val("spec_value", p.spec_value),
+  });
+  box.hidden = !h;
+  box.innerHTML = h;
+}
+
+/* ---- calendar links ----
+   Appointments belong on the calendar that already reminds you: M365 for work,
+   Google for personal. A link, not an API — no OAuth app to register, works
+   today, and the calendar owns the reminder while Note owns the record. */
+function calLinks(e) {
+  const title = e.body || (e.kind === "todo" ? "To-do" : "Appointment");
+  const pad2 = (n) => String(n).padStart(2, "0");
+  const stamp = (ms) => { const d = new Date(ms); return d.getFullYear() + pad2(d.getMonth() + 1) + pad2(d.getDate()) + "T" + pad2(d.getHours()) + pad2(d.getMinutes()) + "00"; };
+  const dayStamp = (ms) => { const d = new Date(ms); return d.getFullYear() + pad2(d.getMonth() + 1) + pad2(d.getDate()); };
+  const details = "From Note" + ((e.subjects || []).length ? " \u2014 " + e.subjects.map((x) => x.name).join(", ") : "");
+  let g, o;
+  if (e.kind === "appt" && e.starts_at) {
+    const end = e.ends_at || e.starts_at + 3600000;
+    g = "https://calendar.google.com/calendar/render?action=TEMPLATE&text=" + encodeURIComponent(title) +
+      "&dates=" + stamp(e.starts_at) + "/" + stamp(end) + "&details=" + encodeURIComponent(details);
+    o = "https://outlook.office.com/calendar/0/deeplink/compose?subject=" + encodeURIComponent(title) +
+      "&startdt=" + encodeURIComponent(isoLocal(e.starts_at) + ":00") + "&enddt=" + encodeURIComponent(isoLocal(end) + ":00") +
+      "&body=" + encodeURIComponent(details);
+  } else if (e.kind === "todo" && e.due_at) {
+    g = "https://calendar.google.com/calendar/render?action=TEMPLATE&text=" + encodeURIComponent(title) +
+      "&dates=" + dayStamp(e.due_at) + "/" + dayStamp(e.due_at + DAY_MS) + "&details=" + encodeURIComponent(details);
+    o = "https://outlook.office.com/calendar/0/deeplink/compose?subject=" + encodeURIComponent(title) +
+      "&startdt=" + isoDate(e.due_at) + "&enddt=" + isoDate(e.due_at + DAY_MS) + "&allday=true&body=" + encodeURIComponent(details);
+  } else return "";
+  const gl = '<a href="' + g + '" target="_blank" rel="noopener">Google Calendar</a>';
+  const ol = '<a href="' + o + '" target="_blank" rel="noopener">Outlook / M365</a>';
+  return '<div class="calinks">' + (e.context === "personal" ? gl + ol : ol + gl) + "</div>";
+}
+
+$("kfields").addEventListener("input", (e) => {
+  const f = e.target.dataset.f;
+  if (f) { cap.touched[f] = e.target.value; paintParsed(); }
+});
+
+function capTags() {
+  const typed = $("tagsIn").value.split(",").map((x) => x.trim().toLowerCase().replace(/^#/, "")).filter(Boolean);
+  return [...new Set([...(cap.p ? cap.p.tags : []), ...typed])];
+}
+
+function paintParsed() {
+  const p = cap.p || parseLine($("body").value);
+  const k = effectiveKind();
+  const out = [];
+  out.push('<span class="pchip kind" data-cycle="1">' + KIND_LONG[k] + "</span>");
+  const th = capThing();
+  if (th) out.push('<span class="pchip thing" data-unthing="1">@' + esc(th.name) + ' <span style="opacity:.6">&times;</span></span>');
+  else if (p.guess) out.push('<span class="pchip thing sug" data-usething="' + esc(p.guess.id) + '">@' + esc(p.guess.name) + "? tap</span>");
+  if (p.person) out.push('<span class="pchip thing">@' + esc(p.person.name) + "</span>");
+  const g = (n, d) => (cap.touched[n] !== undefined ? cap.touched[n] : d);
+  if (k === "todo") { const d = g("due", p.due_at ? isoDate(p.due_at) : ""); if (d) out.push('<span class="pchip due">due ' + esc(relDay(fromDate(d))) + "</span>"); }
+  if (k === "appt") { const d = g("starts", p.starts_at ? isoLocal(p.starts_at) : ""); if (d) out.push('<span class="pchip due">' + esc(relDay(fromLocal(d))) + " " + esc(fmtTime(fromLocal(d))) + " &rarr; " + (context === "personal" ? "Google" : "M365") + "</span>"); }
+  if (k === "value") { const m = g("metric", p.metric), v = g("value", p.value); if (m || v) out.push('<span class="pchip">' + esc(m || "?") + " = " + esc(v == null ? "?" : v) + esc(g("unit", p.unit) || "") + "</span>"); }
+  if (k === "spec") { const kk = g("spec_key", p.spec_key), v = g("spec_value", p.spec_value); if (kk || v) out.push('<span class="pchip">' + esc(kk || "?") + ": " + esc(v || "?") + "</span>"); }
+  capTags().forEach((t) => out.push('<span class="pchip tag">#' + esc(t) + "</span>"));
+  if (herePlace && placeAccepted) out.push('<span class="pchip sug">at ' + esc(herePlace.name) + "</span>");
+  p.warn.forEach((w) => out.push('<span class="pchip warn">' + esc(w) + "</span>"));
+  $("parsed").innerHTML = $("body").value.trim() || th || k !== "note" ? out.join("") : "";
+  document.querySelectorAll("#kinds [data-kind]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.kind === k)));
+  flagged = k === "todo";
+  $("flagBtn").setAttribute("aria-pressed", String(flagged));
+}
+
+function paintCapture() {
+  cap.p = parseLine($("body").value);
+  paintFields();
+  paintParsed();
+}
+
+$("body").addEventListener("input", paintCapture);
+$("kinds").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-kind]");
+  if (!b) return;
+  cap.kind = b.dataset.kind === effectiveKind() && cap.kind ? null : b.dataset.kind;
+  paintFields(); paintParsed();
+});
+$("syntaxBtn").addEventListener("click", () => {
+  $("syntax").hidden = !$("syntax").hidden;
+  $("syntaxBtn").setAttribute("aria-pressed", String(!$("syntax").hidden));
+});
+$("tagsIn").addEventListener("input", paintParsed);
+$("parsed").addEventListener("click", (e) => {
+  const use = e.target.closest("[data-usething]");
+  if (use) { cap.thing = subjects.find((x) => x.id === use.dataset.usething) || null; paintParsed(); return; }
+  if (e.target.closest("[data-unthing]")) { cap.thing = null; if (cap.p) cap.p.thing = null; linkTo = null; paintAgainst(); paintParsed(); return; }
+  if (e.target.closest("[data-cycle]")) {
+    const order = ["note", "todo", "appt", "value", "spec"];
+    cap.kind = order[(order.indexOf(effectiveKind()) + 1) % order.length];
+    paintFields(); paintParsed();
+  }
+});
+
+/** Reset after a save. */
+function resetCapture() {
+  cap = { kind: null, thing: null, touched: {}, p: null };
+  $("tagsIn").value = "";
+  $("kfields").hidden = true;
+  $("parsed").innerHTML = "";
+  document.querySelectorAll("#kinds [data-kind]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.kind === "note")));
+}
+
+/** Go to capture with a kind and a thing already decided — the FAB and the thing page use this. */
+function startCapture(kind, thing) {
+  if (thing) { linkTo = { id: thing.id, name: thing.name, context: thing.context }; if (thing.context && thing.context !== context) setWorld(thing.context); paintAgainst(); }
+  cap.kind = kind || null;
+  go("capture");
+  paintFields(); paintParsed();
+  $("body").focus();
+}
+
+/** "today", "tomorrow", "Fri", "9/22" — the short form for chips and rows. */
+function relDay(ms) {
+  if (ms == null) return "";
+  const a = new Date(ms); a.setHours(0, 0, 0, 0);
+  const b = new Date(); b.setHours(0, 0, 0, 0);
+  const dd = Math.round((a - b) / DAY_MS);
+  if (dd === 0) return "today";
+  if (dd === 1) return "tomorrow";
+  if (dd === -1) return "yesterday";
+  if (dd < 0) return (-dd) + "d ago";
+  if (dd < 7) return new Date(ms).toLocaleDateString([], { weekday: "short" });
+  return (a.getMonth() + 1) + "/" + a.getDate();
+}
+
+async function loadKnownTags() {
+  try {
+    const r = await fetch("/api/tags?" + W());
+    if (!r.ok) return;
+    knownTags = (await r.json()).tags || [];
+    $("tagList").innerHTML = knownTags.map((t) => '<option value="' + esc(t.name) + '">').join("");
+  } catch {}
+}
 
 /* ---- places (§4) ----
    Coordinates are stored on every capture regardless. A named place is matched by
@@ -2157,6 +2669,7 @@ $("linkChips").addEventListener("click", async (e) => {
   flush();
   clearTimeout(lbTimer);
   lbTimer = setTimeout(closeLinkBar, 2500);
+  setTimeout(loadCounts, 1500);
 });
 
 /* ------------------------------------------------------------------ location
@@ -2182,21 +2695,47 @@ $("save").addEventListener("click", async () => {
   $("save").disabled = true;
 
   const { lat, lng } = await coords();
+  const p = cap.p || parseLine(text);
+  const kind = effectiveKind();
+  const g = (n, d) => (cap.touched[n] !== undefined ? cap.touched[n] : d);
+  const th = capThing();
+  const subject_ids = [...new Set([th ? th.id : null].filter(Boolean))];
+  const person_ids = [...new Set([p.person ? p.person.id : null, linkTo && linkTo.kind === "person" ? linkTo.id : null].filter(Boolean))];
+  const tags = capTags();
+  const numv = (v) => { const n = Number(String(v == null ? "" : v).replace(/,/g, "")); return v === "" || v == null || !Number.isFinite(n) ? null : n; };
   const rec = {
     id: crypto.randomUUID(),          // §6: the device owns the id, so no collisions
     created_at: Date.now(),           //     and an offline entry lands whenever it lands
     context,
-    body: text || null,
+    // The markup comes off; what you said is what the note reads.
+    body: (p.body || text || (kind === "value" ? (g("metric", p.metric) || "") + " " + (g("value", p.value) || "") :
+      kind === "spec" ? (g("spec_key", p.spec_key) || "") + " " + (g("spec_value", p.spec_value) || "") : "")).trim() || null,
     lat, lng,
-    is_open: flagged,
-    subject_ids: linkTo && linkTo.kind !== "person" ? [linkTo.id] : [],
-    person_ids: linkTo && linkTo.kind === "person" ? [linkTo.id] : [],
+    kind,
+    is_open: kind === "todo",
+    due_at: kind === "todo" ? fromDate(g("due", p.due_at ? isoDate(p.due_at) : "")) : null,
+    starts_at: kind === "appt" ? fromLocal(g("starts", p.starts_at ? isoLocal(p.starts_at) : "")) : null,
+    ends_at: kind === "appt" ? fromLocal(g("ends", p.ends_at ? isoLocal(p.ends_at) : "")) : null,
+    metric: kind === "value" ? (g("metric", p.metric) || null) : null,
+    value: kind === "value" ? numv(g("value", p.value)) : null,
+    unit: kind === "value" ? (g("unit", p.unit) || null) : null,
+    spec_key: kind === "spec" ? (g("spec_key", p.spec_key) || null) : null,
+    spec_value: kind === "spec" ? (g("spec_value", p.spec_value) || null) : null,
+    tags,
+    // Filed or tagged means reviewed. A bare note waits in the Inbox instead of
+    // vanishing into the stream unfiled.
+    reviewed: !(kind === "note" && !subject_ids.length && !person_ids.length && !tags.length),
+    subject_ids,
+    person_ids,
     // What was running when this happened, not when the queue drains (§6).
     activity_id: act.current ? act.current.id : null,
     place_id: placeAccepted && herePlace ? herePlace.id : null,
     photo: photoBlob || null,
     files: pendingFiles.slice(),
   };
+  if (kind === "value" && rec.value == null) { err("A value needs a number."); $("save").disabled = false; return; }
+  if (kind === "spec" && !rec.spec_key) { err("A spec needs a name, like Tire size."); $("save").disabled = false; return; }
+  if (kind === "spec" && !subject_ids.length) { err("A spec needs a thing to go on — @name it."); $("save").disabled = false; return; }
 
   await put(rec);                     // durable BEFORE any network attempt
   $("body").value = "";
@@ -2204,6 +2743,8 @@ $("save").addEventListener("click", async () => {
   $("flagBtn").setAttribute("aria-pressed", "false");
   linkTo = null;
   paintAgainst();
+  resetCapture();
+  if (!rec.reviewed) loadCounts();
   pendingFiles = [];
   paintPending();
   clearPhoto();
@@ -2232,6 +2773,11 @@ async function flush() {
           person_ids: rec.person_ids || [],
           place_id: rec.place_id || null,
           activity_id: rec.activity_id || null,
+          kind: rec.kind || "note",
+          due_at: rec.due_at ?? null, starts_at: rec.starts_at ?? null, ends_at: rec.ends_at ?? null,
+          metric: rec.metric ?? null, value: rec.value ?? null, unit: rec.unit ?? null,
+          spec_key: rec.spec_key ?? null, spec_value: rec.spec_value ?? null,
+          tags: rec.tags || [], reviewed: rec.reviewed !== false,
         }),
       });
       // 401/403 means the Access session lapsed. Keep the queue and reload into login;
@@ -2333,22 +2879,88 @@ async function paintStatus(force) {
 }
 
 /* ------------------------------------------------------------------ lists */
+/** What a row says under its text: the thing, the due date, the tags. */
+function rowSub(e, opts) {
+  const bits = [];
+  (e.subjects || []).forEach((x) => bits.push("<b>" + esc(x.name) + "</b>"));
+  if (e.kind === "todo" && !e.done_at && e.due_at) {
+    bits.push('<span class="due' + (e.due_at < Date.now() - DAY_MS + 1 && new Date(e.due_at).setHours(0,0,0,0) < new Date().setHours(0,0,0,0) ? " over" : "") + '">due ' + esc(relDay(e.due_at)) + "</span>");
+  }
+  if (e.kind === "todo" && e.done_at) bits.push("<span>done " + esc(relDay(e.done_at)) + "</span>");
+  if (e.kind === "appt" && e.starts_at) bits.push('<span class="due">' + esc(relDay(e.starts_at)) + " " + esc(fmtTime(e.starts_at)) + "</span>");
+  if (e.kind === "value" && e.metric) bits.push("<span>" + esc(e.metric) + " = " + esc(e.value == null ? "" : Number(e.value).toLocaleString()) + esc(e.unit || "") + "</span>");
+  if (e.kind === "spec" && e.spec_key) bits.push("<span>" + esc(e.spec_key) + ": " + esc(e.spec_value || "") + "</span>");
+  (e.tags || []).forEach((t) => bits.push("<span>#" + esc(t) + "</span>"));
+  if (opts && opts.pending) bits.push("<span>queued</span>");
+  if (e.reviewed === 0) bits.push("<span>inbox</span>");
+  return bits.length ? '<span class="sub">' + bits.join("") + "</span>" : "";
+}
+
 function entryRow(e, opts) {
   opts = opts || {};
-  const el = document.createElement(opts.pending ? "div" : "button");
-  el.className = "entry" + (opts.pending ? " pending" : "") + (e.is_open ? " open" : "");
-  if (!opts.pending) el.dataset.id = e.id;
+  const el = document.createElement("div");
+  const done = e.kind === "todo" && e.done_at;
+  el.className = "entry " + (e.kind || "note") + (opts.pending ? " pending" : "") +
+    (done ? " done" : "") + (e.reviewed === 0 ? " unrev" : "");
+  if (!opts.pending) { el.dataset.id = e.id; el.setAttribute("role", "button"); el.tabIndex = 0; }
   const when = opts.full ? fmtFull(e.created_at) : fmtTime(e.created_at);
-  const tag = [e.context, e.is_open ? "open" : null, opts.pending ? "queued" : null]
-    .filter(Boolean).join(" · ");
   el.innerHTML = '<span class="when">' + esc(when) + '</span>' +
-    '<span class="what">' + esc(e.body || "(photo)") +
-    '<span class="tag">' + esc(tag) + '</span></span>' +
+    (e.kind === "todo" && !opts.pending
+      ? '<button class="chk' + (done ? " on" : "") + '" data-done="' + esc(e.id) + '" aria-label="' + (done ? "Reopen" : "Mark done") + '">' + (done ? "&#10003;" : "") + "</button>"
+      : '<span class="kb ' + esc(e.kind || "note") + '">' + esc(KIND_NAME[e.kind] || "NOTE") + "</span>") +
+    '<span class="what"><span>' + esc(e.body || "(photo)") + "</span>" + rowSub(e, opts) + "</span>" +
     // A queued note has never reached the server, so this is the only place it can
     // be taken back -- and offline is exactly when a mis-tap wants taking back.
     (opts.pending ? '<button class="rowx" data-unqueue="' + esc(e.id) + '" title="Discard">&times;</button>' : "");
   return el;
 }
+
+/* ---- undo instead of confirm ----
+   Delete and done just happen, with a few seconds to take them back. A confirm
+   dialog is what makes an app feel cumbersome; an undo is what makes it feel safe. */
+let toastTimer = null, toastUndoFn = null, toastCommitFn = null;
+function toast(msg, undo, commit) {
+  // A second toast commits the first: two deletes in a row must not lose one.
+  if (toastCommitFn) { clearTimeout(toastTimer); const c = toastCommitFn; toastCommitFn = null; c(); }
+  const t = $("toast");
+  t.querySelector(".msg").textContent = msg;
+  $("toastUndo").hidden = !undo;
+  t.hidden = false;
+  toastUndoFn = undo || null;
+  toastCommitFn = commit || null;
+  toastTimer = setTimeout(() => {
+    t.hidden = true;
+    const c = toastCommitFn; toastCommitFn = null; toastUndoFn = null;
+    if (c) c();
+  }, 5000);
+}
+$("toastUndo").addEventListener("click", () => {
+  clearTimeout(toastTimer);
+  $("toast").hidden = true;
+  const u = toastUndoFn; toastUndoFn = null; toastCommitFn = null;
+  if (u) u();
+});
+
+/** Tick a to-do anywhere it appears. */
+document.addEventListener("click", async (ev) => {
+  const b = ev.target.closest("[data-done]");
+  if (!b) return;
+  ev.stopPropagation();
+  const id = b.dataset.done, wasDone = b.classList.contains("on");
+  b.classList.toggle("on", !wasDone);
+  b.innerHTML = wasDone ? "" : "&#10003;";
+  const row = b.closest(".entry");
+  if (row) row.classList.toggle("done", !wasDone);
+  const set = (done) => fetch("/api/entries/" + encodeURIComponent(id), {
+    method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ done }),
+  }).then(() => { loadCounts(); if (view === "due" || view === "today") refreshCurrentView(); });
+  await set(!wasDone);
+  toast(wasDone ? "Reopened" : "Done", () => set(wasDone));
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Enter" || !e.target.classList || !e.target.classList.contains("entry")) return;
+  if (e.target.dataset.id) openDetail(e.target.dataset.id);
+});
 
 function fill(node, entries, emptyMsg, opts) {
   node.replaceChildren();
@@ -2419,30 +3031,397 @@ async function loadDay() {
 $("dayPrev").addEventListener("click", () => { dayOffset--; loadDay(); });
 $("dayNext").addEventListener("click", () => { if (dayOffset < 0) { dayOffset++; loadDay(); } });
 
-/* ---- open items ---- */
-async function loadOpen() {
+/* ---- due: to-dos, appointments and schedules, by when ---- */
+const startOfToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); };
+function dueClass(ms) {
+  if (ms == null) return "";
+  if (ms < startOfToday()) return "over";
+  return ms < startOfToday() + 4 * DAY_MS ? "soon" : "";
+}
+
+function schedRow(sc) {
+  const n = sc.next || {};
+  const cls = n.when != null ? dueClass(n.when) : "";
+  const rule = sc.fixed_month ? "yearly on " + sc.fixed_month + "/" + sc.fixed_day :
+    [sc.every_days ? "every " + sc.every_days + "d" : null,
+     sc.every_value ? "every " + Number(sc.every_value).toLocaleString() + " " + (sc.metric || "") : null]
+      .filter(Boolean).join(" or ") + (sc.every_days && sc.every_value ? ", whichever first" : "");
+  const left = n.by_value && n.by_value.left != null ? " · " + Number(n.by_value.left).toLocaleString() + " " + esc(sc.metric || "") + " to go" : "";
+  return '<div class="sched" data-sched="' + esc(sc.id) + '">' +
+    '<span class="kb sched">SCHED</span>' +
+    '<div class="body"><div class="t"><span>' + esc(sc.label) + '</span><span class="w ' + cls + '">' +
+      (n.when != null ? esc(relDay(n.when)) : "no reading yet") + "</span></div>" +
+    '<div class="m">' + (sc.subject_name ? "<b>" + esc(sc.subject_name) + "</b> · " : "") + esc(rule) + left + "</div>" +
+    '<div class="bar2"><i class="' + cls + '" style="width:' + Math.round((n.progress || 0) * 100) + '%"></i></div></div>' +
+    '<button class="dn" data-scheddone="' + esc(sc.id) + '">Done</button></div>';
+}
+
+async function loadDue() {
+  const box = $("dueBody");
   try {
-    const r = await fetch("/api/entries?view=open&" + W());
-    const d = await r.json();
-    const list = d.entries || [];
-    fill($("openList"), list, "Nothing open. All caught up.", { full: true });
-    setBadge(list.length);
+    const [r, d, sr] = await Promise.all([
+      fetch("/api/entries?view=due&" + W()), fetch("/api/entries?view=done&" + W()), fetch("/api/schedules?" + W()),
+    ]);
+    const due = (await r.json()).entries || [];
+    const done = d.ok ? (await d.json()).entries || [] : [];
+    const scheds = sr.ok ? (await sr.json()).schedules || [] : [];
+    const items = [
+      ...due.map((e) => ({ at: e.kind === "appt" ? e.starts_at : e.due_at, e })),
+      ...scheds.map((sc) => ({ at: sc.next && sc.next.when, sc })),
+    ];
+    const g = { over: [], soon: [], later: [], undated: [] };
+    const week = startOfToday() + 7 * DAY_MS;
+    items.forEach((x) => {
+      if (x.at == null) g.undated.push(x);
+      else if (x.at < startOfToday()) g.over.push(x);
+      else if (x.at < week) g.soon.push(x);
+      else g.later.push(x);
+    });
+    ["over", "soon", "later"].forEach((k) => g[k].sort((a, b) => a.at - b.at));
+    const html = (list) => list.map((x) => x.sc ? schedRow(x.sc) : entryRow(x.e, { full: false }).outerHTML).join("");
+    box.innerHTML =
+      (g.over.length ? '<h2 class="over">Overdue</h2>' + html(g.over) : "") +
+      (g.soon.length ? '<h2 class="soon">This week</h2>' + html(g.soon) : "") +
+      (g.later.length ? "<h2>Later</h2>" + html(g.later) : "") +
+      (g.undated.length ? "<h2>No date</h2>" + html(g.undated) : "") +
+      (done.length ? "<h2>Done</h2>" + done.slice(0, 15).map((e) => entryRow(e).outerHTML).join("") : "") +
+      (!items.length && !done.length ? '<div class="empty">Nothing due. Add a to-do with !fri, or a schedule from a thing\u2019s page.</div>' : "");
+    setBadge(g.over.length);
   } catch {
-    fill($("openList"), [], "Offline — open items need a connection.");
+    box.innerHTML = '<div class="empty">Offline \u2014 the due list needs a connection.</div>';
   }
 }
-async function loadOpenCount() {
+$("dueBody").addEventListener("click", async (e) => {
+  const dn = e.target.closest("[data-scheddone]");
+  if (dn) {
+    e.stopPropagation();
+    dn.disabled = true;
+    const r = await fetch("/api/schedules/" + encodeURIComponent(dn.dataset.scheddone) + "/done", {
+      method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+    });
+    if (!r.ok) err("Could not mark that done.");
+    toast("Done \u2014 next due reset");
+    loadDue();
+    return;
+  }
+  const row = e.target.closest("[data-sched]");
+  if (row) openSched(row.dataset.sched, null);
+});
+
+/** Badges on Due and Inbox, from the one Today call. */
+let todayData = null;
+async function loadCounts() {
   if (!navigator.onLine) return;
   try {
-    const r = await fetch("/api/entries?view=open&limit=100&" + W());
-    if (r.ok) setBadge(((await r.json()).entries || []).length);
+    const r = await fetch("/api/today?" + W());
+    if (!r.ok) return;
+    todayData = await r.json();
+    const over = (todayData.due || []).filter((e) => (e.kind === "appt" ? e.starts_at : e.due_at) < startOfToday()).length +
+      (todayData.schedules || []).filter((sc) => sc.next && sc.next.when != null && sc.next.when < startOfToday()).length;
+    setBadge(over);
+    const ib = $("inboxBadge");
+    ib.textContent = String(todayData.inbox_count || 0);
+    ib.hidden = !todayData.inbox_count;
+    if (view === "today") renderToday();
   } catch {}
 }
+const loadOpenCount = loadCounts;
 function setBadge(n) {
   const b = $("openBadge");
   b.textContent = String(n);
   b.hidden = n === 0;
 }
+
+/* ---- today: what needs you, before you say anything ---- */
+async function loadToday() {
+  if (!todayData) $("todayBody").innerHTML = '<div class="empty">Loading\u2026</div>';
+  await loadCounts();
+  if (!todayData) $("todayBody").innerHTML = '<div class="empty">Offline \u2014 Today needs a connection. Capture still works.</div>';
+  else renderToday();
+}
+function renderToday() {
+  const t = todayData;
+  const now = Date.now();
+  const items = [
+    ...(t.due || []).map((e) => ({ at: e.kind === "appt" ? e.starts_at : e.due_at, e })),
+    ...(t.schedules || []).map((sc) => ({ at: sc.next.when, sc })),
+  ].sort((a, b) => a.at - b.at);
+  const over = items.filter((x) => x.at < startOfToday()).length;
+  const soon = items.filter((x) => x.at >= startOfToday() && x.at < startOfToday() + 7 * DAY_MS).length;
+  const views = savedViews.length
+    ? '<h2>Saved views</h2><div class="savedviews">' + savedViews.map((v) =>
+        '<button data-view-id="' + esc(v.id) + '">' + esc(v.name) + "</button>").join("") + "</div>"
+    : "";
+  $("todayBody").innerHTML =
+    '<div class="stat">' +
+      '<button data-go="due" class="' + (over ? "hot" : "") + '"><div class="n">' + over + '</div><div class="l">overdue</div></button>' +
+      '<button data-go="due" class="' + (soon ? "warm" : "") + '"><div class="n">' + soon + '</div><div class="l">this week</div></button>' +
+      '<button data-go="inbox" class="' + (t.inbox_count ? "warm" : "") + '"><div class="n">' + (t.inbox_count || 0) + '</div><div class="l">inbox</div></button>' +
+    "</div>" +
+    (items.length ? "<h2>Due</h2>" + items.slice(0, 8).map((x) => x.sc ? schedRow(x.sc) : entryRow(x.e).outerHTML).join("") : "") +
+    (t.undated ? '<p class="hint">' + t.undated + " to-do" + (t.undated === 1 ? "" : "s") + ' with no date \u2014 <a href="#" data-go="due">see them</a></p>' : "") +
+    "<h2>Recent</h2>" + ((t.recent || []).length ? t.recent.map((e) => entryRow(e, { full: true }).outerHTML).join("") : '<div class="empty">Nothing yet today. Tap Capture.</div>') +
+    views;
+}
+$("todayBody").addEventListener("click", (e) => {
+  const g = e.target.closest("[data-go]");
+  if (g) { e.preventDefault(); go(g.dataset.go); return; }
+  const v = e.target.closest("[data-view-id]");
+  if (v) { applySavedView(v.dataset.viewId); return; }
+  const dn = e.target.closest("[data-scheddone]");
+  if (dn) { e.stopPropagation(); fetch("/api/schedules/" + encodeURIComponent(dn.dataset.scheddone) + "/done", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }).then(() => { toast("Done \u2014 next due reset"); loadToday(); }); return; }
+  const row = e.target.closest("[data-sched]");
+  if (row) openSched(row.dataset.sched, null);
+});
+
+/* ---- inbox: captures waiting to be filed ---- */
+async function loadInbox() {
+  const box = $("inboxList");
+  try {
+    const r = await fetch("/api/entries?view=inbox&" + W());
+    const list = (await r.json()).entries || [];
+    if (!list.length) { box.innerHTML = '<div class="empty">Inbox is empty. Everything is filed.</div>'; return; }
+    box.innerHTML = list.map((e) => {
+      const p = parseLine(e.body || "");
+      const guess = p.guess || null;
+      const chips = ['<span class="pchip kind">' + KIND_LONG[p.kind] + "</span>"];
+      if (guess) chips.push('<span class="pchip thing sug">@' + esc(guess.name) + "?</span>");
+      if (p.due_at) chips.push('<span class="pchip due sug">due ' + esc(relDay(p.due_at)) + "</span>");
+      return '<div class="inb" data-inb="' + esc(e.id) + '" data-guess="' + esc(guess ? guess.id : "") + '" data-kind="' + esc(p.kind) + '">' +
+        '<div class="src"><span>' + esc(fmtFull(e.created_at)) + "</span><span>unfiled</span></div>" +
+        '<div class="raw">' + esc(e.body || "(photo)") + "</div>" +
+        '<div class="chips" style="margin:0 0 8px">' + chips.join("") + "</div>" +
+        '<div class="actions" style="margin-top:0">' +
+          '<button class="btn sm ghost" data-inbfix="1">Fix</button>' +
+          '<button class="btn sm ghost danger" data-inbdel="1">Delete</button>' +
+          '<button class="btn sm" data-inbacc="1">' + (guess ? "Accept" : "Keep as note") + "</button>" +
+        "</div></div>";
+    }).join("");
+  } catch {
+    box.innerHTML = '<div class="empty">Offline \u2014 the inbox needs a connection.</div>';
+  }
+}
+$("inboxList").addEventListener("click", async (e) => {
+  const card = e.target.closest("[data-inb]");
+  if (!card) return;
+  const id = card.dataset.inb;
+  if (e.target.closest("[data-inbfix]")) { openDetail(id); return; }
+  if (e.target.closest("[data-inbdel]")) { deleteEntryById(id, card); return; }
+  if (e.target.closest("[data-inbacc]")) {
+    const patch = { reviewed: true };
+    if (card.dataset.guess) patch.subject_ids = [card.dataset.guess];
+    if (card.dataset.kind && card.dataset.kind !== "note") patch.kind = card.dataset.kind;
+    const p = parseLine(card.querySelector(".raw").textContent);
+    if (p.due_at) patch.due_at = p.due_at;
+    card.remove();
+    await fetch("/api/entries/" + encodeURIComponent(id), { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(patch) });
+    toast("Filed");
+    loadCounts();
+    if (!$("inboxList").querySelector("[data-inb]")) loadInbox();
+  }
+});
+
+/** Delete with an undo, from anywhere: the row goes now, the request goes in 5s. */
+function deleteEntryById(id, rowEl) {
+  if (rowEl) rowEl.hidden = true;
+  toast("Deleted", () => { if (rowEl) rowEl.hidden = false; }, async () => {
+    const r = await fetch("/api/entries/" + encodeURIComponent(id), { method: "DELETE" }).catch(() => null);
+    if (!r || !r.ok) { err("Could not delete that \u2014 is there a connection?"); if (rowEl) rowEl.hidden = false; return; }
+    recent = recent.filter((x) => x.id !== id);
+    if (rowEl) rowEl.remove();
+    loadCounts();
+  });
+}
+
+/* ---- tags: what it is about, across the tree ---- */
+let tagSel = [];
+async function loadTags() {
+  try {
+    const r = await fetch("/api/tags?" + W());
+    knownTags = (await r.json()).tags || [];
+  } catch { $("tagCloud").innerHTML = '<div class="empty">Offline \u2014 tags need a connection.</div>'; return; }
+  tagSel = tagSel.filter((t) => knownTags.some((k) => k.name === t));
+  const live = knownTags.filter((t) => t.count > 0);
+  $("tagCloud").innerHTML = live.length
+    ? live.map((t) => '<button data-tag="' + esc(t.name) + '" class="' + (tagSel.includes(t.name) ? "on" : "") + '">#' + esc(t.name) + "<small>" + t.count + "</small></button>").join("") +
+      '<button class="mg" data-tagmg="1">manage</button>'
+    : '<div class="empty">No tags yet. Put #parts or #warranty in a note and it shows up here.</div>';
+  const box = $("tagList2");
+  if (!tagSel.length) { $("tagHint").textContent = "Tap a tag. Tap a second to narrow to both."; box.innerHTML = ""; return; }
+  const q = await fetch("/api/entries?view=query&tags=" + encodeURIComponent(tagSel.join(",")) + "&" + W());
+  const rows = (await q.json()).entries || [];
+  $("tagHint").textContent = rows.length + " with " + tagSel.map((t) => "#" + t).join(" + ") + ". Tap another tag to narrow.";
+  fill(box, rows, "Nothing carries all of those.", { full: true });
+}
+$("tagCloud").addEventListener("click", async (e) => {
+  const mg = e.target.closest("[data-tagmg]");
+  if (mg) {
+    const names = knownTags.map((t) => t.name);
+    const which = prompt("Rename or delete which tag?\n" + names.map((n) => "#" + n).join("  "));
+    if (!which) return;
+    const tag = knownTags.find((t) => t.name === which.trim().replace(/^#/, "").toLowerCase());
+    if (!tag) { err("No tag called " + which); return; }
+    const to = prompt("New name for #" + tag.name + " (blank to delete it):", tag.name);
+    if (to === null) return;
+    if (!to.trim()) {
+      if (!confirm("Delete #" + tag.name + " from every note?")) return;
+      await fetch("/api/tags/" + encodeURIComponent(tag.id), { method: "DELETE" });
+    } else {
+      await fetch("/api/tags/" + encodeURIComponent(tag.id), { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: to }) });
+    }
+    loadTags();
+    return;
+  }
+  const b = e.target.closest("[data-tag]");
+  if (!b) return;
+  const t = b.dataset.tag;
+  tagSel = tagSel.includes(t) ? tagSel.filter((x) => x !== t) : [...tagSel, t];
+  loadTags();
+});
+
+/* ---- table: the Excel door ---- */
+let tbl = { q: "", kind: "", sort: "created", rows: [], tags: [] };
+let tblTimer = null, savedViews = [];
+function tblQuery() {
+  const ps = new URLSearchParams({ view: "query", limit: "300" });
+  if (tbl.q) ps.set("q", tbl.q);
+  if (tbl.kind) ps.set("kind", tbl.kind);
+  if (tbl.tags.length) ps.set("tags", tbl.tags.join(","));
+  ps.set("sort", tbl.sort === "due" ? "due" : tbl.sort === "kind" ? "kind" : "created");
+  return ps.toString();
+}
+async function loadTable() {
+  document.querySelectorAll("[data-tkind]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.tkind === tbl.kind)));
+  if ($("tblQ").value !== tbl.q) $("tblQ").value = tbl.q;
+  $("csvLink").href = "/api/export.csv?" + tblQuery() + "&" + W();
+  try {
+    const r = await fetch("/api/entries?" + tblQuery() + "&" + W());
+    tbl.rows = (await r.json()).entries || [];
+  } catch { $("tblWrap").innerHTML = '<div class="empty">Offline \u2014 the table needs a connection.</div>'; return; }
+  renderTable();
+  renderSavedViews();
+}
+function renderTable() {
+  const rows = tbl.rows.slice();
+  const key = { created: (e) => -e.created_at, kind: (e) => e.kind, thing: (e) => (e.subjects && e.subjects[0] ? e.subjects[0].name.toLowerCase() : "\uffff"), due: (e) => (e.due_at || e.starts_at || 9e15), value: (e) => -(e.value == null ? -Infinity : e.value) }[tbl.sort];
+  if (key) rows.sort((a, b) => (key(a) > key(b) ? 1 : key(a) < key(b) ? -1 : 0));
+  const th = (k, l) => '<th data-sort="' + k + '" class="' + (tbl.sort === k ? "on" : "") + '">' + l + (tbl.sort === k ? " \u25be" : "") + "</th>";
+  const cell = (e) => {
+    const when = e.due_at ? relDay(e.due_at) + (e.done_at ? " \u2713" : "") : e.starts_at ? relDay(e.starts_at) + " " + fmtTime(e.starts_at) : "";
+    const extra = e.kind === "value" ? esc(e.metric || "") + " " + esc(e.value == null ? "" : e.value) + esc(e.unit || "") :
+      e.kind === "spec" ? esc(e.spec_key || "") + ": " + esc(e.spec_value || "") : "";
+    return '<tr data-id="' + esc(e.id) + '"><td class="mono">' + esc(fmtDate(e.created_at).replace(/^\w+, /, "")) + " " + esc(fmtTime(e.created_at)) + "</td>" +
+      '<td><span class="kb ' + esc(e.kind) + '">' + esc(KIND_NAME[e.kind] || "NOTE") + "</span></td>" +
+      "<td>" + esc((e.subjects || []).map((x) => x.name).join(", ")) + "</td>" +
+      "<td>" + esc(e.body || "") + (extra ? '<div class="sub">' + extra + "</div>" : "") + "</td>" +
+      '<td class="mono">' + esc(when) + "</td><td>" + esc((e.tags || []).map((t) => "#" + t).join(" ")) + "</td></tr>";
+  };
+  $("tblWrap").innerHTML = rows.length
+    ? '<table class="grid"><thead><tr>' + th("created", "When") + th("kind", "Kind") + th("thing", "Thing") + "<th>Text</th>" + th("due", "Due") + "<th>Tags</th></tr></thead><tbody>" +
+      rows.map(cell).join("") + "</tbody></table>" +
+      '<p class="hint" style="margin-top:8px">' + rows.length + " rows. Tap a header to sort, a row to open it.</p>"
+    : '<div class="empty">Nothing matches.</div>';
+}
+$("tblWrap").addEventListener("click", (e) => {
+  const h = e.target.closest("[data-sort]");
+  if (h) { tbl.sort = h.dataset.sort; renderTable(); return; }
+  const r = e.target.closest("tr[data-id]");
+  if (r) openDetail(r.dataset.id);
+});
+$("tblFilters").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-tkind]");
+  if (!b) return;
+  tbl.kind = b.dataset.tkind;
+  loadTable();
+});
+$("tblQ").addEventListener("input", (e) => {
+  clearTimeout(tblTimer);
+  tbl.q = e.target.value.trim();
+  tblTimer = setTimeout(loadTable, 300);
+});
+async function loadSavedViews() {
+  try { savedViews = (await (await fetch("/api/views?" + W())).json()).views || []; } catch {}
+}
+function renderSavedViews() {
+  $("savedViews").innerHTML = savedViews.map((v) =>
+    '<button data-view-id="' + esc(v.id) + '">' + esc(v.name) + '</button>').join("") +
+    (savedViews.length ? '<button class="x" data-view-del="1">\u2212 remove</button>' : "");
+}
+function applySavedView(id) {
+  const v = savedViews.find((x) => x.id === id);
+  if (!v) return;
+  let q = {};
+  try { q = JSON.parse(v.query); } catch {}
+  tbl = { q: q.q || "", kind: q.kind || "", sort: q.sort || "created", rows: [], tags: q.tags || [] };
+  browseMode = "table";
+  go("browse");
+}
+$("savedViews").addEventListener("click", async (e) => {
+  const d = e.target.closest("[data-view-del]");
+  if (d) {
+    const which = prompt("Remove which saved view?\n" + savedViews.map((v) => v.name).join(", "));
+    const v = which && savedViews.find((x) => x.name.toLowerCase() === which.trim().toLowerCase());
+    if (!v) return;
+    await fetch("/api/views/" + encodeURIComponent(v.id), { method: "DELETE" });
+    await loadSavedViews(); renderSavedViews();
+    return;
+  }
+  const b = e.target.closest("[data-view-id]");
+  if (b) applySavedView(b.dataset.viewId);
+});
+$("saveView").addEventListener("click", async () => {
+  const name = prompt("Name this view:", [tbl.kind ? KIND_LONG[tbl.kind] + "s" : "", tbl.q, ...tbl.tags.map((t) => "#" + t)].filter(Boolean).join(" ") || "My view");
+  if (!name) return;
+  await fetch("/api/views", { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name, context, query: { q: tbl.q, kind: tbl.kind, sort: tbl.sort, tags: tbl.tags } }) });
+  await loadSavedViews(); renderSavedViews();
+  toast("Saved");
+});
+
+/* ---- browse: four doors ---- */
+const BMODE_KEY = "note.browse.mode";
+let browseMode = "tree";
+try { browseMode = localStorage.getItem(BMODE_KEY) || "tree"; } catch {}
+function paintBrowse() {
+  document.querySelectorAll("[data-bmode]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.bmode === browseMode)));
+  ["tree", "tags", "stream", "table"].forEach((m) => { $("pane-" + m).hidden = m !== browseMode; });
+  $("fab").hidden = view === "capture";
+  if (browseMode === "tree") loadSubjects();
+  else if (browseMode === "tags") loadTags();
+  else if (browseMode === "stream") loadDay();
+  else loadSavedViews().then(loadTable);
+}
+$("browseMode").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-bmode]");
+  if (!b || b.dataset.bmode === browseMode) return;
+  browseMode = b.dataset.bmode;
+  try { localStorage.setItem(BMODE_KEY, browseMode); } catch {}
+  paintBrowse();
+});
+
+/* ---- the floating + ----
+   Always in the same place, and what it offers depends on where you are. */
+$("fab").addEventListener("click", () => {
+  const m = $("fabMenu");
+  if (!m.hidden) { m.hidden = true; return; }
+  const b = (l, d) => '<button data-fab="' + d + '">' + l + "</button>";
+  m.innerHTML = '<div class="mh">New</div>' + b("Note", "note") + b("To-do", "todo") + b("Appointment", "appt") +
+    b("Value (a reading)", "value") + b("Spec", "spec") + '<div class="mh">Also</div>' + b("Thing", "thing") + b("Place", "place") + b("Schedule", "sched");
+  m.hidden = false;
+});
+$("fabMenu").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-fab]");
+  if (!b) return;
+  $("fabMenu").hidden = true;
+  const d = b.dataset.fab;
+  if (d === "thing") openAddThing(null);
+  else if (d === "place") openMapPick(null);
+  else if (d === "sched") openSched(null, null);
+  else startCapture(d, null);
+});
+document.addEventListener("click", (e) => {
+  if (!e.target.closest("#fab") && !e.target.closest("#fabMenu")) $("fabMenu").hidden = true;
+});
 
 /* ---- search ---- */
 let searchTimer;
@@ -2457,10 +3436,11 @@ $("q").addEventListener("input", (e) => {
         fetch("/api/lookup?q=" + encodeURIComponent(q) + "&" + W()),
       ]);
       const d = await r.json();
-      const found = l.ok ? await l.json() : { items: [], people: [], places: [] };
+      const found = l.ok ? await l.json() : { items: [], people: [], places: [], tags: [] };
       const named = [
         ...(found.items || []).map((x) => ({ ...x, kind: x.type, attr: "data-subject-id" })),
         ...(found.people || []).map((x) => ({ ...x, kind: "person", attr: "data-person-id" })),
+        ...(found.tags || []).map((x) => ({ ...x, name: "#" + x.name, kind: "tag", attr: "data-tag-go", id: x.name })),
       ];
       const any = named.length || (d.entries || []).length;
       fill($("searchList"), d.entries || [], any ? "No notes match." : 'Nothing matches "' + q + '".', { full: true });
@@ -2479,6 +3459,16 @@ $("q").addEventListener("input", (e) => {
     }
   }, 250);
 });
+
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("[data-tag-go]");
+  if (!t) return;
+  tagSel = [t.dataset.tagGo];
+  browseMode = "tags";
+  try { localStorage.setItem(BMODE_KEY, browseMode); } catch {}
+  go("browse");
+});
+$("hdrSearch").addEventListener("click", () => go("search"));
 
 /* ------------------------------------------------------------------ detail */
 let current = null;
@@ -2528,8 +3518,12 @@ function threadLink(label, e) {
     '<span class="what">' + esc(e.body || "(photo)") + '</span></button>';
 }
 
+let dkind = "note", dsel = [];
+
 function renderDetail(rejectedText) {
   const e = current;
+  dkind = e.kind || "note";
+  dsel = (e.subjects || []).map((x) => x.id);
   const photos = (e.photos || [])
     // A photo that will not load (missing object, no signal) should leave nothing
     // behind rather than a broken-image sliver.
@@ -2565,34 +3559,58 @@ function renderDetail(rejectedText) {
       "</em><br><br>Edit again if you want to keep yours.</div>"
     : "";
 
+  const fields = kindFieldsHtml(dkind, {
+    due: e.due_at ? isoDate(e.due_at) : "", starts: e.starts_at ? isoLocal(e.starts_at) : "", ends: e.ends_at ? isoLocal(e.ends_at) : "",
+    metric: e.metric || "", value: e.value == null ? "" : e.value, unit: e.unit || "",
+    spec_key: e.spec_key || "", spec_value: e.spec_value || "",
+  });
+  const isTodo = dkind === "todo";
+
   $("detailBody").innerHTML =
     conflict + photos + fileList(e.files, false) +
+    '<div class="kinds" id="dkinds">' + ["note", "todo", "appt", "value", "spec"].map((k) =>
+      '<button class="chip" data-dkind="' + k + '" aria-pressed="' + (k === dkind) + '">' + KIND_LONG[k] + "</button>").join("") + "</div>" +
     '<textarea id="editBody">' + esc(e.body || "") + "</textarea>" + raw +
+    '<div class="kfields" id="dfields"' + (fields ? "" : " hidden") + ">" + fields + "</div>" +
+    '<div class="kfields"><div class="f wide"><label>When</label><input id="editWhen" type="datetime-local" value="' + esc(isoLocal(e.created_at)) + '"></div></div>' +
+    "<h2>About</h2>" +
+    '<div class="things-pick" id="dthings"></div>' +
+    '<input class="tagsin" id="dthingQ" placeholder="add a thing\u2026" autocomplete="off">' +
+    '<input class="tagsin" id="dtags" value="' + esc((e.tags || []).join(", ")) + '" placeholder="tags, comma separated" list="tagList">' +
+    calLinks(e) +
     '<div class="actions">' +
-      '<button class="btn sm" id="saveEdit">Save changes</button>' +
-      '<button class="btn sm ghost" id="toggleOpen">' +
-        (e.is_open ? "Mark done" : "Reopen") + "</button>" +
+      '<button class="btn sm" id="saveEdit">Save</button>' +
+      (isTodo ? '<button class="btn sm ghost" id="toggleOpen">' + (e.done_at ? "Reopen" : "Mark done") + "</button>" : "") +
       // Captured on the wrong side. One tap; links and place come off with it,
       // since they belonged to the side it is leaving.
       '<button class="btn sm ghost" id="moveEntry">Move to ' +
         (e.context === "work" ? "personal" : "work") + "</button>" +
+      '<button class="btn sm danger" id="deleteEntry">Delete</button>' +
     "</div>" +
-    // Offered only while it is still true. A button that explains it is too late
-    // after you press it is worse than no button.
-    (e.deletable_for_ms > 0
-      ? '<div class="actions"><button class="btn sm danger" id="deleteEntry">Delete</button>' +
-        '<span class="windowleft">for ' + minutesLeft(e.deletable_for_ms) + " more</span></div>"
-      : "") +
     '<dl class="meta">' +
       "<dt>when</dt><dd>" + esc(fmtFull(e.created_at)) + "</dd>" +
       "<dt>context</dt><dd>" + esc(e.context) + "</dd>" +
       (e.activity_label ? "<dt>during</dt><dd>" + esc(e.activity_label) + "</dd>" : "") +
-      "<dt>status</dt><dd>" + (e.is_open ? "open follow-up" : "closed") + "</dd>" +
+      (isTodo ? "<dt>status</dt><dd>" + (e.done_at ? "done " + esc(fmtFull(e.done_at)) : "open") + "</dd>" : "") +
+      (e.reviewed === 0 ? "<dt>inbox</dt><dd>not filed yet \u2014 saving files it</dd>" : "") +
       (e.edited_at ? "<dt>edited</dt><dd>" + esc(fmtFull(e.edited_at)) + "</dd>" : "") +
       (e.lat != null ? "<dt>where</dt><dd>" + e.lat.toFixed(5) + ", " + e.lng.toFixed(5) + "</dd>" : "") +
       "<dt>version</dt><dd>" + e.version + "</dd>" +
       "<dt>id</dt><dd>" + esc(e.id) + "</dd>" +
-    "</dl>" + subj + thread;
+    "</dl>" + ((e.people || []).length ? subj : "") + thread;
+
+  paintDThings("");
+  $("dthingQ").addEventListener("input", (ev) => paintDThings(ev.target.value));
+  $("dkinds").addEventListener("click", (ev) => {
+    const b = ev.target.closest("[data-dkind]");
+    if (!b) return;
+    dkind = b.dataset.dkind;
+    document.querySelectorAll("[data-dkind]").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.dkind === dkind)));
+    const cur = readDFields();
+    const h = kindFieldsHtml(dkind, cur);
+    $("dfields").hidden = !h;
+    $("dfields").innerHTML = h;
+  });
 
   $("moveEntry").addEventListener("click", async () => {
     const to = e.context === "work" ? "personal" : "work";
@@ -2608,13 +3626,34 @@ function renderDetail(rejectedText) {
     loadOpenCount();
   });
   $("saveEdit").addEventListener("click", saveEdit);
-  $("toggleOpen").addEventListener("click", toggleOpen);
-  if ($("deleteEntry")) $("deleteEntry").addEventListener("click", deleteEntry);
+  if ($("toggleOpen")) $("toggleOpen").addEventListener("click", toggleOpen);
+  $("deleteEntry").addEventListener("click", deleteEntry);
 }
 
-function minutesLeft(ms) {
-  const m = Math.ceil(ms / 60000);
-  return m <= 1 ? "under a minute" : m + " minutes";
+/** The things chips on the edit sheet: chosen ones lit, matches for the filter after. */
+function paintDThings(q) {
+  const box = $("dthings");
+  if (!box) return;
+  const n = normName(q);
+  const chosen = dsel.map((id) => subjects.find((x) => x.id === id) || (current.subjects || []).find((x) => x.id === id)).filter(Boolean);
+  const more = subjects.filter((x) => !x.archived_at && x.context === current.context && !dsel.includes(x.id) &&
+    (n ? normName(x.name).includes(n) : false)).slice(0, 8);
+  box.innerHTML = chosen.map((x) => '<span class="pchip on" data-dthing="' + esc(x.id) + '">' + esc(x.name) + ' <span style="opacity:.7">&times;</span></span>').join("") +
+    more.map((x) => '<span class="pchip" data-dthing="' + esc(x.id) + '">+ ' + esc(x.name) + "</span>").join("") +
+    (!chosen.length && !n ? '<span class="hint" style="margin:0">Not on a thing. Type to add one.</span>' : "");
+}
+document.addEventListener("click", (e) => {
+  const c = e.target.closest("[data-dthing]");
+  if (!c || !$("dthings")) return;
+  const id = c.dataset.dthing;
+  dsel = dsel.includes(id) ? dsel.filter((x) => x !== id) : [...dsel, id];
+  if ($("dthingQ")) $("dthingQ").value = "";
+  paintDThings("");
+});
+function readDFields() {
+  const v = {};
+  document.querySelectorAll("#dfields [data-f]").forEach((i) => { v[i.dataset.f] = i.value; });
+  return v;
 }
 
 /**
@@ -2623,47 +3662,51 @@ function minutesLeft(ms) {
  * The window is checked again on the server -- this button only decides whether to
  * offer it, and the page may have been open a while.
  */
-async function deleteEntry() {
+/** Delete from the sheet: close it, and the toast holds the door open for 5s. */
+function deleteEntry() {
   const e = current;
   if (!e) return;
-  if (!confirm("Delete this note? Its photos and files go too. This cannot be undone.")) return;
-  const btn = $("deleteEntry");
-  btn.disabled = true;
-  try {
-    const r = await fetch("/api/entries/" + encodeURIComponent(e.id), { method: "DELETE" });
-    if (!r.ok) {
-      const d = await r.json().catch(() => ({}));
-      alert(d.error || "Could not delete that.");
-      btn.disabled = false;
-      return;
-    }
-    closeOverlay("detail");
-    recent = recent.filter((x) => x.id !== e.id);
-    refreshCurrentView();
-    renderRecent();
-    loadRecent();
-    loadOpenCount();
-  } catch {
-    alert("Could not reach the server. Deleting needs a connection.");
-    btn.disabled = false;
-  }
+  const row = document.querySelector('.entry[data-id="' + e.id + '"]');
+  closeOverlay("detail");
+  deleteEntryById(e.id, row);
 }
 
 async function saveEdit() {
   const text = $("editBody").value;
   const btn = $("saveEdit");
   btn.disabled = true;
+  const v = readDFields();
+  const numv = (x) => { const n = Number(String(x == null ? "" : x).replace(/,/g, "")); return x === "" || x == null || !Number.isFinite(n) ? null : n; };
+  const patch = {
+    kind: dkind,
+    due_at: dkind === "todo" ? fromDate(v.due) : null,
+    starts_at: dkind === "appt" ? fromLocal(v.starts) : null,
+    ends_at: dkind === "appt" ? fromLocal(v.ends) : null,
+    metric: dkind === "value" ? (v.metric || null) : null,
+    value: dkind === "value" ? numv(v.value) : null,
+    unit: dkind === "value" ? (v.unit || null) : null,
+    spec_key: dkind === "spec" ? (v.spec_key || null) : null,
+    spec_value: dkind === "spec" ? (v.spec_value || null) : null,
+    tags: $("dtags").value.split(",").map((x) => x.trim()).filter(Boolean),
+    subject_ids: dsel,
+    reviewed: true,
+  };
+  const when = fromLocal($("editWhen").value);
+  if (when && when !== current.created_at) patch.created_at = when;
+  if (text !== (current.body || "")) { patch.body = text; patch.version = current.version; }
   try {
     const r = await fetch("/api/entries/" + encodeURIComponent(current.id), {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ body: text, version: current.version }),
+      body: JSON.stringify(patch),
     });
     const d = await r.json();
     if (r.status === 409) { current = d.current; renderDetail(text); return; }
     if (!r.ok) throw new Error();
-    current = Object.assign({}, current, d);
-    renderDetail();
+    toast("Saved");
+    await openDetail(current.id);
+    loadRecent(); loadCounts();
+    if (view !== "capture") refreshCurrentView();
   } catch {
     err("Could not save that edit.");
   } finally {
@@ -2676,14 +3719,13 @@ async function toggleOpen() {
     const r = await fetch("/api/entries/" + encodeURIComponent(current.id), {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ is_open: !current.is_open }),
+      body: JSON.stringify({ done: !current.done_at }),
     });
     if (!r.ok) throw new Error();
-    current = await r.json();
-    renderDetail();
-    loadOpenCount();
+    await openDetail(current.id);
+    loadCounts();
   } catch {
-    err("Could not update that follow-up.");
+    err("Could not update that to-do.");
   }
 }
 
@@ -2698,7 +3740,7 @@ async function toggleOpen() {
    same path and the stack can never drift out of step with what is on screen. */
 // Order matters: the topmost open one is what back should close, so newer/stacked
 // sheets come first. Miss one here and back silently falls through to leaving the app.
-const OVERLAYS = ["mapPick", "notesImport", "addThing", "detail", "subject", "person", "activity", "places", "settings"];
+const OVERLAYS = ["sched", "mapPick", "notesImport", "addThing", "detail", "subject", "person", "activity", "places", "settings"];
 
 function openOverlay(id) {
   $(id).hidden = false;
@@ -2752,23 +3794,30 @@ addEventListener("popstate", (e) => {
 /* ------------------------------------------------------------------ routing */
 let view = "capture";
 function refreshCurrentView() {
-  if (view === "log") loadDay();
-  else if (view === "open") loadOpen();
-  else if (view === "subjects") loadSubjects();
+  if (view === "today") loadToday();
+  else if (view === "browse") paintBrowse();
+  else if (view === "due") loadDue();
+  else if (view === "inbox") loadInbox();
   else if (view === "capture") loadRecent();
 }
 function applyView(next) {
+  if (next === "log" || next === "subjects" || next === "open") {   // old bookmarks
+    browseMode = next === "log" ? "stream" : "tree";
+    next = next === "open" ? "due" : "browse";
+  }
   view = next;
-  ["capture", "log", "open", "subjects", "search"].forEach((s) => {
+  ["today", "capture", "browse", "due", "inbox", "search"].forEach((s) => {
     $("view-" + s).hidden = s !== next;
   });
+  $("fab").hidden = next === "capture";
+  $("fabMenu").hidden = true;
   document.querySelectorAll("nav button").forEach((b) => {
     b.setAttribute("aria-current", String(b.dataset.view === next));
   });
   // Leaving capture with the camera live would hold the sensor open for nothing.
   $("thumb").hidden = next !== "capture";
   document.body.classList.toggle("capturing", next === "capture");
-  if (next !== "capture") { stopCamera(); } else { suggestPlace(); }
+  if (next !== "capture") { stopCamera(); } else { suggestPlace(); paintParsed(); }
   refreshCurrentView();
   if (next === "search") $("q").focus();
 }
@@ -2788,6 +3837,7 @@ document.querySelector("nav").addEventListener("click", (e) => {
    One line per release, newest first. Kept deliberately short: it exists to answer
    "did the thing I asked for actually ship", not to be release notes. */
 const RELEASES = [
+  ["2.0.0", "Kinds: note, to-do, appointment, value, spec. One capture line with @thing #tag !due. Tags, Due, Inbox, Today, a table with CSV, saved views, schedules by date or reading, calendar links, undo instead of confirm"],
   ["1.24.0", "Work and Personal never mix: a switch in the header, maroon for work; places belong to a world; move a note across; Claude asks which"],
   ["1.23.0", "People, linked to places and notes; \u201cnew item X\u201d in a note adds it; search finds names; Things became Places and items"],
   ["1.22.0", "Rename or move a place instead of deleting it; the map says when it is offline"],
@@ -3615,11 +4665,21 @@ function renderSubjectRead() {
     : '<div class="r"><div class="k">details</div><div class="v none">nothing recorded yet</div></div>';
 
   const history = s.entries.length
-    ? s.entries.map((e) =>
-        '<button class="entry' + (e.is_open ? " open" : "") + '" data-id="' + esc(e.id) + '">' +
-        '<span class="when">' + esc(fmtFull(e.created_at)) + "</span>" +
-        '<span class="what">' + esc(e.body || "(photo)") + "</span></button>").join("")
+    ? s.entries.map((e) => entryRow(e, { full: true }).outerHTML).join("")
     : '<div class="empty">Nothing logged against this yet. Capture a note with it selected and it lands here.</div>';
+
+  const tags = (s.tags || []).length
+    ? '<div class="tagrow">' + s.tags.map((t) => '<span data-tag-go="' + esc(t) + '">#' + esc(t) + "</span>").join("") + "</div>"
+    : "";
+  const values = (s.metrics || []).length
+    ? "<h2>Latest values</h2><div class=\"vals\">" + s.metrics.map((m) =>
+        '<div class="val"><div class="m">' + esc(m.metric) + '</div><div class="n">' + esc(Number(m.latest.value).toLocaleString()) + "</div>" +
+        '<div class="u">' + esc(m.unit || "") + (m.unit ? " \u00b7 " : "") + esc(relDay(m.latest.at)) + "</div>" +
+        (m.points.length > 1 ? '<canvas data-spark="' + esc(m.metric) + '" width="220" height="34"></canvas>' : "") + "</div>").join("") + "</div>"
+    : "";
+  const scheds = (s.schedules || []).length
+    ? "<h2>Schedules</h2>" + s.schedules.map(schedRow).join("")
+    : "";
 
   // Where it sits. Standing in front of a sprinkler, "which yard is this one in"
   // is the question the row itself cannot answer — and the crumbs are the way back
@@ -3646,17 +4706,31 @@ function renderSubjectRead() {
       '<span class="badge2">' + esc(s.context) + "</span>" +
       (s.archived_at ? '<span class="badge2">archived</span>' : "") +
       '<span class="badge2">' + s.entries.length + " logged</span></div></div>" +
+    tags +
+    "<h2>Specs</h2>" +
     '<div class="spec">' + rows + "</div>" +
+    values + scheds +
     parts +
     (s.files && s.files.length ? "<h2>Files</h2>" + fileList(s.files, true) : "") +
     '<div class="actions">' +
       '<button class="btn sm" id="noteAgainst">+ Note</button>' +
+      '<button class="btn sm ghost" id="todoAgainst">+ To-do</button>' +
+      '<button class="btn sm ghost" id="valueAgainst">+ Value</button>' +
+      '<button class="btn sm ghost" id="specAgainst">+ Spec</button></div>' +
+    '<div class="actions" style="margin-top:8px">' +
+      '<button class="btn sm ghost" id="schedAgainst">+ Schedule</button>' +
       '<button class="btn sm ghost" id="addInside">+ Inside</button>' +
       '<button class="btn sm ghost" id="attachHere">Attach</button>' +
       '<button class="btn sm ghost" id="editSubject">Edit</button></div>' +
-    "<h2>History</h2>" + history;
+    "<h2>Timeline</h2>" + history;
 
+  drawSparks(s);
   $("editSubject").addEventListener("click", () => { editing = true; renderSubject(); });
+  $("schedAgainst").addEventListener("click", () => openSched(null, s.id));
+  ["todo", "value", "spec"].forEach((k) => $(k + "Against").addEventListener("click", () => {
+    closeOverlayTo("subject", "capture");
+    startCapture(k, s);
+  }));
 
   $("subjectBody").querySelectorAll("[data-crumb]").forEach((b) =>
     b.addEventListener("click", () => openSubject(b.dataset.crumb)));
@@ -3688,9 +4762,119 @@ function renderSubjectRead() {
     paintAgainst();
     closeLinkBar();
     closeOverlayTo("subject", "capture");
+    cap.kind = null;
+    paintParsed();
     $("body").focus();
   });
 }
+
+/** One line per metric: the trend at a glance, latest point emphasised. */
+function drawSparks(s) {
+  document.querySelectorAll("#subjectBody canvas[data-spark]").forEach((c) => {
+    const m = (s.metrics || []).find((x) => x.metric === c.dataset.spark);
+    if (!m || m.points.length < 2) return;
+    const pts = m.points.slice().sort((a, b) => a.at - b.at);
+    const ctx = c.getContext("2d"), W = c.width, H = c.height;
+    const xs = pts.map((p) => p.at), ys = pts.map((p) => p.value);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+    const X = (t) => 4 + ((t - x0) / (x1 - x0 || 1)) * (W - 8), Y = (v) => H - 4 - ((v - y0) / (y1 - y0 || 1)) * (H - 10);
+    const col = getComputedStyle(document.documentElement).getPropertyValue("--blue").trim() || "#2C7BC4";
+    ctx.strokeStyle = col; ctx.lineWidth = 1.6; ctx.beginPath();
+    pts.forEach((p, i) => (i ? ctx.lineTo(X(p.at), Y(p.value)) : ctx.moveTo(X(p.at), Y(p.value))));
+    ctx.stroke();
+    ctx.fillStyle = col; const l = pts[pts.length - 1];
+    ctx.beginPath(); ctx.arc(X(l.at), Y(l.value), 2.8, 0, 7); ctx.fill();
+  });
+}
+
+/* Schedules on the thing page: Done and open, same as on Due. */
+$("subjectBody").addEventListener("click", async (e) => {
+  const dn = e.target.closest("[data-scheddone]");
+  if (dn) {
+    e.stopPropagation();
+    dn.disabled = true;
+    await fetch("/api/schedules/" + encodeURIComponent(dn.dataset.scheddone) + "/done", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    toast("Done \u2014 next due reset");
+    if (currentSubject) openSubject(currentSubject.id);
+    return;
+  }
+  const row = e.target.closest("[data-sched]");
+  if (row && !e.target.closest(".entry")) openSched(row.dataset.sched, null);
+});
+
+/* ------------------------------------------------------------ schedules
+   A rule on a thing: every N days, every N of a reading, or a date each year.
+   Both of the first two means whichever comes first, like a service interval. */
+let schedCur = null;
+async function openSched(id, subjectId) {
+  openOverlay("sched");
+  $("schedBody").innerHTML = '<div class="empty">Loading\u2026</div>';
+  schedCur = null;
+  if (id) {
+    try {
+      const all = (await (await fetch("/api/schedules?" + W())).json()).schedules || [];
+      schedCur = all.find((x) => x.id === id) || null;
+    } catch {}
+  }
+  const s = schedCur || { label: "", subject_id: subjectId || (currentSubject ? currentSubject.id : null), every_days: "", every_value: "", metric: "", fixed_month: "", fixed_day: "", last_done_at: null, last_value: "" };
+  $("schedTitle").textContent = schedCur ? "Schedule" : "New schedule";
+  const things = subjects.filter((x) => !x.archived_at && x.context === context);
+  const inp = (id2, label, type, v, ph, wide) =>
+    '<div class="f' + (wide ? " wide" : "") + '"><label>' + label + '</label><input id="' + id2 + '" type="' + type + '" value="' + esc(v == null ? "" : v) + '"' + (ph ? ' placeholder="' + ph + '"' : "") + "></div>";
+  $("schedBody").innerHTML =
+    '<div class="kfields">' +
+      inp("scLabel", "What", "text", s.label, "Oil change", true) +
+      '<div class="f wide"><label>On</label><select id="scThing" style="width:100%;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);padding:10px 11px;font:400 15px var(--font-ui)">' +
+        '<option value="">\u2014 nothing in particular \u2014</option>' +
+        things.map((t) => '<option value="' + esc(t.id) + '"' + (t.id === s.subject_id ? " selected" : "") + ">" + esc(t.name) + "</option>").join("") +
+      "</select></div>" +
+      inp("scDays", "Every (days)", "number", s.every_days, "180") +
+      inp("scValue", "Or every (reading)", "number", s.every_value, "5000") +
+      inp("scMetric", "Reading", "text", s.metric, "odo") +
+      '<div class="f"><label>&nbsp;</label><span class="hint" style="margin:0">Both set = whichever first.</span></div>' +
+      inp("scMonth", "Or yearly, month", "number", s.fixed_month, "11") +
+      inp("scDay", "Day", "number", s.fixed_day, "1") +
+      inp("scLast", "Last done", "date", s.last_done_at ? isoDate(s.last_done_at) : "", "") +
+      inp("scLastV", "Reading then", "number", s.last_value, "81000") +
+    "</div>" +
+    '<div class="actions"><button class="btn sm" id="scSave">Save</button>' +
+      (schedCur ? '<button class="btn sm danger" id="scDel">Delete</button>' : "") + "</div>";
+  $("scSave").addEventListener("click", saveSched);
+  if ($("scDel")) $("scDel").addEventListener("click", async () => {
+    await fetch("/api/schedules/" + encodeURIComponent(schedCur.id), { method: "DELETE" });
+    closeOverlay("sched");
+    toast("Schedule removed");
+    afterSched();
+  });
+  $("scLabel").focus();
+}
+function afterSched() {
+  if (currentSubject && !$("subject").hidden) openSubject(currentSubject.id);
+  loadCounts();
+  if (view === "due") loadDue();
+}
+async function saveSched() {
+  const n = (id) => { const v = $(id).value.trim(); return v === "" ? null : Number(v); };
+  const body = {
+    label: $("scLabel").value.trim(), context,
+    subject_id: $("scThing").value || null,
+    every_days: n("scDays"), every_value: n("scValue"), metric: $("scMetric").value.trim() || null,
+    fixed_month: n("scMonth"), fixed_day: n("scDay"),
+    last_done_at: fromDate($("scLast").value), last_value: n("scLastV"),
+  };
+  if (!body.label) { err("Say what it is, like Oil change."); return; }
+  if (!body.every_days && !body.every_value && !(body.fixed_month && body.fixed_day)) { err("How often? Days, a reading, or a yearly date."); return; }
+  if (body.every_value && !body.metric) { err("Every N of what reading? odo, hours\u2026"); return; }
+  err("");
+  const r = await fetch(schedCur ? "/api/schedules/" + encodeURIComponent(schedCur.id) : "/api/schedules", {
+    method: schedCur ? "PATCH" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+  });
+  if (!r.ok) { err((await r.json().catch(() => ({}))).error || "Could not save that."); return; }
+  closeOverlay("sched");
+  toast("Schedule saved");
+  afterSched();
+}
+$("schedBack").addEventListener("click", () => closeOverlay("sched"));
 
 function renderSubjectEdit() {
   const s = currentSubject;
@@ -3716,7 +4900,9 @@ function renderSubjectEdit() {
       'background:var(--card);color:var(--ink);padding:11px;font:400 15px var(--font-ui);' +
       'margin-bottom:6px">' + homeOptions(homeValue(s), s.id) + "</select>" +
     '<p class="empty" style="padding-top:0">Moving it brings whatever is inside it along.</p>' +
-    "<h2>Details</h2><div id=\"attrs\">" + rows + "</div>" +
+    "<h2>Tags</h2>" +
+    '<input class="tagsin" id="subjTags" value="' + esc((s.tags || []).join(", ")) + '" placeholder="tags, comma separated" list="tagList">' +
+    "<h2>Specs</h2><div id=\"attrs\">" + rows + "</div>" +
     '<button class="btn ghost sm" id="addAttr" style="margin-bottom:12px">+ Add field</button>' +
     '<div class="actions">' +
       '<button class="btn sm" id="saveSubject">Save</button>' +
@@ -3783,6 +4969,7 @@ async function saveSubject() {
         name: $("subjName").value.trim() || currentSubject.name,
         context: currentSubject.context,
         attributes,
+        tags: $("subjTags").value.split(",").map((x) => x.trim()).filter(Boolean),
         // Both keys go every time, nulls included: null is how a thing is moved
         // back out to the top level, so omitting them would make "nowhere in
         // particular" the one choice that could not be saved.
@@ -4790,13 +5977,17 @@ setInterval(() => { if (navigator.onLine) flush(); }, 30000);
   await renderRecent();
   checkVersion();
   loadRecent();
-  loadOpenCount();
+  loadCounts();
+  loadKnownTags();
+  loadSavedViews();
   // loadSubjects fetches places too — the tree is filed under them — so the place
   // suggestion hangs off it rather than firing a second request for the same rows.
   loadSubjects().then(suggestPlace);   // also paints the capture screen's subject chips
-  $("thumb").hidden = false;
-  document.body.classList.add("capturing");
-  history.replaceState({ view: "capture" }, "");
+  // Land on Today when online: what needs you, before you say anything. Offline,
+  // Today has nothing to show and Capture is the whole point.
+  const landing = navigator.onLine ? "today" : "capture";
+  history.replaceState({ view: landing }, "");
+  applyView(landing);
   flush();
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/sw.js").catch(() => {});
