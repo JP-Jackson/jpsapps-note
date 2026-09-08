@@ -848,6 +848,47 @@ addEventListener("appinstalled", function () {
   .kfields .f{display:flex;flex-direction:column;gap:3px}
   .kfields .f.wide{grid-column:1 / -1}
   .kfields label{font:500 10px/1.4 var(--font-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+  /* ---------- date picker ----------
+     The OS picker for <input type="datetime-local"> is a column of spinners: it
+     shows one day at a time, so "next Tuesday" means scrolling and counting. A
+     month grid answers that at a glance, which is what picking an appointment
+     actually asks. The real value still lives in a hidden input in the same
+     ISO format, so everything that reads these fields is untouched. */
+  .dtbtn{width:100%;border:1px solid var(--line);border-radius:8px;background:var(--card);
+    color:var(--ink);padding:10px 11px;font:400 15px var(--font-ui);text-align:left;cursor:pointer}
+  .dtbtn[data-empty]{color:var(--ink-2)}
+  .dtbtn:active{border-color:var(--blue)}
+  #dtpick{position:fixed;inset:0;z-index:60;background:#0008;display:flex;
+    align-items:flex-end;justify-content:center}
+  .dtsheet{width:100%;max-width:420px;background:var(--card);color:var(--ink);
+    border-radius:16px 16px 0 0;padding:14px 14px calc(14px + env(safe-area-inset-bottom));
+    box-shadow:0 -8px 30px #0006}
+  @media (min-height:620px){ #dtpick{align-items:center} .dtsheet{border-radius:16px;margin:0 10px} }
+  .dthead{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+  .dthead strong{flex:1;text-align:center;font:600 15px var(--font-ui)}
+  .dthead button{width:38px;height:38px;border:1px solid var(--line);border-radius:10px;
+    background:var(--bg);color:var(--ink);font-size:20px;line-height:1;cursor:pointer}
+  .dtdow,.dtgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+  .dtdow span{text-align:center;font:600 10px/2 var(--font-mono);letter-spacing:.06em;
+    text-transform:uppercase;color:var(--ink-2)}
+  .dtgrid button{aspect-ratio:1;border:0;border-radius:9px;background:transparent;color:var(--ink);
+    font:400 15px var(--font-ui);cursor:pointer;padding:0}
+  .dtgrid button.out{color:var(--ink-2);opacity:.45}
+  .dtgrid button.today{box-shadow:inset 0 0 0 1px var(--blue)}
+  .dtgrid button.on{background:var(--blue);color:#fff;font-weight:600}
+  .dtquick{display:flex;gap:6px;margin:10px 0 0;flex-wrap:wrap}
+  .dtquick button{flex:1;min-width:72px;border:1px solid var(--line);border-radius:9px;
+    background:var(--bg);color:var(--ink);padding:9px 6px;font:500 12px var(--font-mono);cursor:pointer}
+  .dttime{display:flex;align-items:center;gap:6px;margin-top:12px}
+  .dttime label{font:500 10px/1.4 var(--font-mono);letter-spacing:.08em;
+    text-transform:uppercase;color:var(--ink-2);margin-right:2px}
+  .dttime select{flex:1;border:1px solid var(--line);border-radius:8px;background:var(--bg);
+    color:var(--ink);padding:10px 6px;font:400 15px var(--font-ui)}
+  .dtfoot{display:flex;align-items:center;gap:8px;margin-top:14px}
+  .dtfoot button{border:0;background:transparent;color:var(--blue);padding:10px 12px;
+    font:600 14px var(--font-ui);cursor:pointer;border-radius:9px}
+  .dtfoot .sp{flex:1}
+  .dtfoot #dtSet{background:var(--blue);color:#fff;padding:10px 20px}
   .kfields input,.kfields select,.tagsin{width:100%;border:1px solid var(--line);border-radius:8px;
     background:var(--card);color:var(--ink);padding:10px 11px;font:400 15px var(--font-ui)}
   .kfields input:focus,.tagsin:focus{outline:2px solid var(--blue);outline-offset:-1px}
@@ -1186,6 +1227,35 @@ addEventListener("appinstalled", function () {
 <button id="fab" aria-label="Add" hidden>+</button>
 <div id="fabMenu" hidden></div>
 <div id="toast" hidden><span class="msg"></span><button id="toastUndo">Undo</button></div>
+
+<!-- A month grid instead of the OS spinner. See .dtbtn in the styles above. -->
+<div id="dtpick" hidden>
+  <div class="dtsheet" role="dialog" aria-modal="true" aria-label="Pick a date">
+    <div class="dthead">
+      <button type="button" id="dtPrev" aria-label="Previous month">&lsaquo;</button>
+      <strong id="dtMonth"></strong>
+      <button type="button" id="dtNext" aria-label="Next month">&rsaquo;</button>
+    </div>
+    <div class="dtdow"><span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span></div>
+    <div class="dtgrid" id="dtGrid"></div>
+    <div class="dtquick">
+      <button type="button" data-jump="0">Today</button>
+      <button type="button" data-jump="1">Tomorrow</button>
+      <button type="button" data-jump="7">+1 week</button>
+    </div>
+    <div class="dttime" id="dtTime" hidden>
+      <label>At</label>
+      <select id="dtHour"></select><select id="dtMin"></select><select id="dtAp">
+        <option value="AM">AM</option><option value="PM">PM</option></select>
+    </div>
+    <div class="dtfoot">
+      <button type="button" id="dtClear">Clear</button>
+      <span class="sp"></span>
+      <button type="button" id="dtCancel">Cancel</button>
+      <button type="button" id="dtSet">Set</button>
+    </div>
+  </div>
+</div>
 
 <!-- A schedule: a rule on a thing. -->
 <div id="sched" hidden>
@@ -1844,9 +1914,11 @@ const fromLocal = (v) => (v ? new Date(v).getTime() : null);
 /** The inputs a kind needs. `v` holds current values by field name, as strings. */
 function kindFieldsHtml(k, v) {
   const f = (name, label, type, extra) =>
-    '<div class="f' + (extra && extra.wide ? " wide" : "") + '"><label>' + label + "</label>" +
-    '<input data-f="' + name + '" type="' + type + '" value="' + esc(v[name] == null ? "" : v[name]) + '"' +
-    (extra && extra.list ? ' list="metricList"' : "") + (extra && extra.ph ? ' placeholder="' + extra.ph + '"' : "") + "></div>";
+    type === "date" || type === "datetime-local"
+      ? dtFieldHtml('data-f="' + name + '"', label, type, v[name], extra && extra.wide)
+      : '<div class="f' + (extra && extra.wide ? " wide" : "") + '"><label>' + label + "</label>" +
+        '<input data-f="' + name + '" type="' + type + '" value="' + esc(v[name] == null ? "" : v[name]) + '"' +
+        (extra && extra.list ? ' list="metricList"' : "") + (extra && extra.ph ? ' placeholder="' + extra.ph + '"' : "") + "></div>";
   if (k === "todo") return f("due", "Due", "date");
   if (k === "appt") return f("starts", "Starts", "datetime-local") + f("ends", "Ends", "datetime-local");
   if (k === "value") return f("metric", "Metric", "text", { list: true, ph: "odo" }) + f("value", "Value", "text", { ph: "84200" }) +
@@ -1854,6 +1926,143 @@ function kindFieldsHtml(k, v) {
   if (k === "spec") return f("spec_key", "Spec", "text", { ph: "Tire size" }) + f("spec_value", "Value", "text", { ph: "275/65R18" });
   return "";
 }
+
+/* ------------------------------------------------------- calendar picker
+   A date field is a button showing the date in words, plus a hidden input that
+   still holds the plain ISO string every reader of these fields expects. The
+   sheet is a month grid: a week is a row, so a weekday is a column, and "the
+   Tuesday after next" is a place on the page rather than a count of spins. */
+const DT_MONTHS = ["January","February","March","April","May","June",
+  "July","August","September","October","November","December"];
+
+/** Split a field value into {y, m, d, h, mi}, or null when the field is empty. */
+function dtParse(v) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?/.exec(v || "");
+  if (!m) return null;
+  return { y: +m[1], m: +m[2] - 1, d: +m[3], h: m[4] == null ? 9 : +m[4], mi: m[5] == null ? 0 : +m[5] };
+}
+const dtIso = (p, mode) =>
+  p.y + "-" + String(p.m + 1).padStart(2, "0") + "-" + String(p.d).padStart(2, "0") +
+  (mode === "date" ? "" : "T" + String(p.h).padStart(2, "0") + ":" + String(p.mi).padStart(2, "0"));
+
+/** What the button says: the date as a person would write it. */
+function dtLabel(v, mode) {
+  const p = dtParse(v);
+  if (!p) return mode === "date" ? "Pick a date" : "Pick date and time";
+  const ms = new Date(p.y, p.m, p.d, p.h, p.mi).getTime();
+  return mode === "date" ? fmtDate(ms) : fmtFull(ms);
+}
+
+function dtFieldHtml(inputAttrs, label, mode, v, wide) {
+  v = v == null ? "" : v;
+  return '<div class="f' + (wide ? " wide" : "") + '"><label>' + esc(label) + "</label>" +
+    '<button type="button" class="dtbtn" data-dtmode="' + mode + '"' + (v ? "" : ' data-empty="1"') +
+    ">" + esc(dtLabel(v, mode)) + "</button>" +
+    "<input " + inputAttrs + ' type="hidden" value="' + esc(v) + '"></div>';
+}
+
+let dtCur = null;   // { input, btn, mode, view: {y,m}, sel: {y,m,d}, h, mi }
+
+function dtOpen(btn) {
+  const input = btn.parentNode.querySelector("input");
+  if (!input) return;
+  const mode = btn.dataset.dtmode;
+  const now = new Date();
+  // Nothing set yet: land on today, at the next quarter hour rather than 12:00 AM.
+  const p = dtParse(input.value) ||
+    { y: now.getFullYear(), m: now.getMonth(), d: now.getDate(),
+      h: now.getHours(), mi: Math.ceil(now.getMinutes() / 15) * 15 };
+  if (p.mi > 59) { p.mi = 0; p.h = (p.h + 1) % 24; }
+  dtCur = { input, btn, mode, view: { y: p.y, m: p.m }, sel: { y: p.y, m: p.m, d: p.d }, h: p.h, mi: p.mi };
+  $("dtTime").hidden = mode === "date";
+  dtPaintTime();
+  dtPaint();
+  openOverlay("dtpick");
+}
+
+function dtPaintTime() {
+  if (dtCur.mode === "date") return;
+  const h12 = dtCur.h % 12 || 12;
+  const hs = $("dtHour"), ms = $("dtMin");
+  hs.innerHTML = Array.from({ length: 12 }, (_, i) =>
+    '<option value="' + (i + 1) + '"' + (i + 1 === h12 ? " selected" : "") + ">" + (i + 1) + "</option>").join("");
+  // Five-minute steps cover almost every appointment; an odd minute already on the
+  // entry is added so that editing one cannot silently round it.
+  const steps = [...new Set([...Array.from({ length: 12 }, (_, i) => i * 5), dtCur.mi])].sort((a, b) => a - b);
+  ms.innerHTML = steps.map((n) =>
+    '<option value="' + n + '"' + (n === dtCur.mi ? " selected" : "") + ">" + String(n).padStart(2, "0") + "</option>").join("");
+  $("dtAp").value = dtCur.h < 12 ? "AM" : "PM";
+}
+
+function dtReadTime() {
+  if (dtCur.mode === "date") return;
+  const h12 = +$("dtHour").value % 12;
+  dtCur.h = h12 + ($("dtAp").value === "PM" ? 12 : 0);
+  dtCur.mi = +$("dtMin").value;
+}
+
+function dtPaint() {
+  const { y, m } = dtCur.view;
+  $("dtMonth").textContent = DT_MONTHS[m] + " " + y;
+  const first = new Date(y, m, 1), lead = first.getDay();
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const cells = [];
+  for (let i = 0; i < 42; i++) {
+    const d = new Date(y, m, 1 - lead + i);
+    const on = dtCur.sel && d.getFullYear() === dtCur.sel.y && d.getMonth() === dtCur.sel.m && d.getDate() === dtCur.sel.d;
+    cells.push('<button type="button" data-d="' + d.getFullYear() + "-" + d.getMonth() + "-" + d.getDate() + '"' +
+      ' class="' + (d.getMonth() === m ? "" : "out") + (d.getTime() === today.getTime() ? " today" : "") + (on ? " on" : "") + '"' +
+      (on ? ' aria-current="date"' : "") + ">" + d.getDate() + "</button>");
+  }
+  $("dtGrid").innerHTML = cells.join("");
+}
+
+function dtShift(n) {
+  const d = new Date(dtCur.view.y, dtCur.view.m + n, 1);
+  dtCur.view = { y: d.getFullYear(), m: d.getMonth() };
+  dtPaint();
+}
+
+function dtClose() { closeOverlay("dtpick"); dtCur = null; }
+
+/** Write the chosen value back, then let every existing listener see it. */
+function dtCommit(v) {
+  const { input, btn, mode } = dtCur;
+  input.value = v;
+  btn.textContent = dtLabel(v, mode);
+  if (v) btn.removeAttribute("data-empty"); else btn.setAttribute("data-empty", "1");
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+  dtClose();
+}
+
+document.addEventListener("click", (e) => {
+  const b = e.target.closest(".dtbtn");
+  if (b) { e.preventDefault(); dtOpen(b); }
+});
+$("dtPrev").addEventListener("click", () => dtShift(-1));
+$("dtNext").addEventListener("click", () => dtShift(1));
+$("dtGrid").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-d]");
+  if (!b) return;
+  const [y, m, d] = b.dataset.d.split("-").map(Number);
+  dtCur.sel = { y, m, d };
+  dtCur.view = { y, m };
+  dtPaint();
+});
+$("dtpick").querySelector(".dtquick").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-jump]");
+  if (!b) return;
+  const d = new Date(); d.setDate(d.getDate() + +b.dataset.jump);
+  dtCur.sel = { y: d.getFullYear(), m: d.getMonth(), d: d.getDate() };
+  dtCur.view = { y: dtCur.sel.y, m: dtCur.sel.m };
+  dtPaint();
+});
+$("dtSet").addEventListener("click", () => { dtReadTime(); dtCommit(dtIso({ ...dtCur.sel, h: dtCur.h, mi: dtCur.mi }, dtCur.mode)); });
+$("dtClear").addEventListener("click", () => dtCommit(""));
+$("dtCancel").addEventListener("click", () => dtClose());
+// Tapping the dimmed backdrop is cancel, the same as on any sheet.
+$("dtpick").addEventListener("click", (e) => { if (e.target.id === "dtpick") dtClose(); });
 
 function paintFields() {
   const k = effectiveKind(), p = cap.p || {}, box = $("kfields");
@@ -3621,7 +3830,7 @@ function renderDetail(rejectedText) {
       '<button class="chip" data-dkind="' + k + '" aria-pressed="' + (k === dkind) + '">' + KIND_LONG[k] + "</button>").join("") + "</div>" +
     '<textarea id="editBody">' + esc(e.body || "") + "</textarea>" + raw +
     '<div class="kfields" id="dfields"' + (fields ? "" : " hidden") + ">" + fields + "</div>" +
-    '<div class="kfields"><div class="f wide"><label>When</label><input id="editWhen" type="datetime-local" value="' + esc(isoLocal(e.created_at)) + '"></div></div>' +
+    '<div class="kfields">' + dtFieldHtml('id="editWhen"', "When", "datetime-local", isoLocal(e.created_at), true) + '</div>' +
     "<h2>About</h2>" +
     '<div class="things-pick" id="dthings"></div>' +
     '<input class="tagsin" id="dthingQ" placeholder="add a thing\u2026" autocomplete="off">' +
@@ -3789,7 +3998,7 @@ async function toggleOpen() {
    same path and the stack can never drift out of step with what is on screen. */
 // Order matters: the topmost open one is what back should close, so newer/stacked
 // sheets come first. Miss one here and back silently falls through to leaving the app.
-const OVERLAYS = ["sched", "mapPick", "notesImport", "addThing", "detail", "subject", "person", "activity", "places", "settings"];
+const OVERLAYS = ["dtpick", "sched", "mapPick", "notesImport", "addThing", "detail", "subject", "person", "activity", "places", "settings"];
 
 function openOverlay(id) {
   $(id).hidden = false;
@@ -4885,7 +5094,7 @@ async function openSched(id, subjectId) {
       '<div class="f"><label>&nbsp;</label><span class="hint" style="margin:0">Both set = whichever first.</span></div>' +
       inp("scMonth", "Or yearly, month", "number", s.fixed_month, "11") +
       inp("scDay", "Day", "number", s.fixed_day, "1") +
-      inp("scLast", "Last done", "date", s.last_done_at ? isoDate(s.last_done_at) : "", "") +
+      dtFieldHtml('id="scLast"', "Last done", "date", s.last_done_at ? isoDate(s.last_done_at) : "") +
       inp("scLastV", "Reading then", "number", s.last_value, "81000") +
     "</div>" +
     '<div class="actions"><button class="btn sm" id="scSave">Save</button>' +
