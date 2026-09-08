@@ -836,6 +836,11 @@ addEventListener("appinstalled", function () {
     display:inline-flex;align-items:center;justify-content:center;margin-top:-1px}
   .entry .chk.on{background:#1f7a4d22;border-color:var(--ok)}
   .entry.unrev{border-style:dashed}
+  /* A full date is too wide to sit beside the text on a phone: it squeezes the
+     body into a narrow column. Give the stamp its own line above instead. */
+  .entry.full{flex-wrap:wrap;gap:6px 10px;align-items:center}
+  .entry.full .when{padding-top:0}
+  .entry.full .what{flex:1 1 100%}
 
   .kinds{display:flex;gap:6px;margin:0 0 10px;flex-wrap:wrap}
   .kinds .chip{flex:0 0 auto;min-width:0;padding:8px 12px;font-size:13px;border-radius:8px}
@@ -2930,7 +2935,7 @@ function entryRow(e, opts) {
   const el = document.createElement("div");
   const done = e.kind === "todo" && e.done_at;
   el.className = "entry " + (e.kind || "note") + (opts.pending ? " pending" : "") +
-    (done ? " done" : "") + (e.reviewed === 0 ? " unrev" : "");
+    (done ? " done" : "") + (e.reviewed === 0 ? " unrev" : "") + (opts.full ? " full" : "");
   if (!opts.pending) { el.dataset.id = e.id; el.setAttribute("role", "button"); el.tabIndex = 0; }
   const when = opts.full ? fmtFull(e.created_at) : fmtTime(e.created_at);
   el.innerHTML = '<span class="when">' + esc(when) + '</span>' +
