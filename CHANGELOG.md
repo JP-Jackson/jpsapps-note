@@ -3,6 +3,12 @@
 Mirrors the list shown in Settings. One line per release — enough to answer
 "did the thing I asked for actually ship", not full release notes.
 
+## 2.0.1
+Work is a darker maroon. Links on Today are ink and underlined instead of an
+unreadable blue. Typing `every 30 days` or `every 5000 mi` in the capture line makes
+a repeating schedule on the thing named. A schedule's editor links to Google
+Calendar as a repeating event, so the phone does the reminding.
+
 ## 2.0.0
 Every capture has a kind: note, to-do, appointment, value (a reading off a thing —
 odo 84,200) or spec (a fact about a thing — tire size). One line does it:

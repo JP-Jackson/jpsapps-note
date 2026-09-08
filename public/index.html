@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#16222E">
-<meta name="app-version" content="2.0.0">
+<meta name="app-version" content="2.0.1">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Note">
@@ -94,11 +94,11 @@ addEventListener("appinstalled", function () {
   /* Two worlds, two keylines. Work is maroon, personal is the house blue, so which
      side you are on never needs reading. Every accent is a token, so this is the
      whole of it: one rule per theme state, layered under the contrast rules below. */
-  :root[data-world="work"]{--blue:#8A2433; --blue-deep:#5E1622}
+  :root[data-world="work"]{--blue:#6B1A27; --blue-deep:#45101A}
   @media (prefers-color-scheme:dark){
-    :root[data-world="work"]:not([data-theme="light"]){--blue:#D9566A; --blue-deep:#8A2433}
+    :root[data-world="work"]:not([data-theme="light"]){--blue:#C2404F; --blue-deep:#6B1A27}
   }
-  :root[data-world="work"][data-theme="dark"]{--blue:#D9566A; --blue-deep:#8A2433}
+  :root[data-world="work"][data-theme="dark"]{--blue:#C2404F; --blue-deep:#6B1A27}
   :root[data-world="work"][data-contrast="high"]{--blue:#6E0F1F; --blue-deep:#3E0810}
   @media (prefers-color-scheme:dark){
     :root[data-world="work"][data-contrast="high"]:not([data-theme="light"]){--blue:#FF8A96; --blue-deep:#8A2433}
@@ -945,6 +945,7 @@ addEventListener("appinstalled", function () {
   #toast button{background:none;border:0;color:#8ab4dd;font:700 14px var(--font-ui);cursor:pointer;padding:4px}
 
   .today h2{margin-top:20px}
+  .hint a,.today a,.empty a{color:var(--ink);font-weight:600;text-decoration:underline;text-underline-offset:3px}
   .today .stat{display:flex;gap:8px;margin-bottom:12px}
   .today .stat button{flex:1;background:var(--card);border:1px solid var(--line);border-radius:12px;
     padding:12px;text-align:left;cursor:pointer;color:var(--ink)}
@@ -1077,6 +1078,7 @@ addEventListener("appinstalled", function () {
       <code>tue 2pm</code><span>an appointment, pushed to your calendar</span>
       <code>odo 84200</code><span>a value: metric then number</span>
       <code>spec key value</code><span>a spec, written on the thing</span>
+      <code>every 30 days</code><span>a repeating schedule; also every 5000 mi, every 250 hours</span>
       <code>new item X</code><span>adds a thing and files this on it</span>
     </div>
     <div class="kfields" id="kfields" hidden></div>
@@ -1713,8 +1715,8 @@ $("flagBtn").addEventListener("click", () => {
    to-do, a time makes it an appointment, "odo 84200" is a value, "spec key value"
    writes a spec on the thing. The chips under the line show what was understood;
    the kind chips are the override when the guess is wrong. */
-const KIND_NAME = { note: "Note", todo: "To-do", appt: "Appt", value: "Value", spec: "Spec" };
-const KIND_LONG = { note: "Note", todo: "To-do", appt: "Appointment", value: "Value", spec: "Spec" };
+const KIND_NAME = { note: "Note", todo: "To-do", appt: "Appt", value: "Value", spec: "Spec", sched: "SCHED" };
+const KIND_LONG = { note: "Note", todo: "To-do", appt: "Appointment", value: "Value", spec: "Spec", sched: "Repeats" };
 const METRICS = ["odo", "odometer", "miles", "hours", "hrs", "psi", "temp", "amps", "volts", "kwh",
   "gal", "gallons", "cycles", "rpm", "hz", "level", "pressure", "weight", "lbs", "kg"];
 const DOW = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
@@ -1779,6 +1781,18 @@ function parseLine(text) {
   });
   t = t.replace(/\bspec:?\s+([\w /-]+?)\s*[:=]?\s+(\S.*)$/i, (m, k, v) => {
     r.kind = "spec"; r.spec_key = k.trim(); r.spec_value = v.trim(); return "";
+  });
+  // "every 30 days", "every 5000 mi", "every 250 hours": a schedule, not a note.
+  t = t.replace(/\bevery\s+(\d[\d,]*)\s*(d|days?|w|wks?|weeks?|mo|months?|yr|years?|mi|miles?|hrs?|hours?)\b/i, (m, n, u) => {
+    const num = Number(n.replace(/,/g, "")), unit = u.toLowerCase();
+    r.kind = "sched";
+    if (/^(mi|miles?)$/.test(unit)) r.every = { value: num, metric: "odo", label: n + " mi" };
+    else if (/^(hrs?|hours?)$/.test(unit)) r.every = { value: num, metric: "hours", label: n + " hours" };
+    else {
+      const mult = /^(w|wks?|weeks?)$/.test(unit) ? 7 : /^(mo|months?)$/.test(unit) ? 30 : /^(yr|years?)$/.test(unit) ? 365 : 1;
+      r.every = { days: num * mult, label: n + " " + unit };
+    }
+    return "";
   });
   if (r.kind === "note") {
     const mt = t.match(new RegExp("(^|\\s)(" + METRICS.join("|") + ")\\s*[:=]?\\s*(-?\\d[\\d,]*\\.?\\d*)\\s*([a-z°%/]+)?", "i"));
@@ -1901,6 +1915,7 @@ function paintParsed() {
   if (k === "todo") { const d = g("due", p.due_at ? isoDate(p.due_at) : ""); if (d) out.push('<span class="pchip due">due ' + esc(relDay(fromDate(d))) + "</span>"); }
   if (k === "appt") { const d = g("starts", p.starts_at ? isoLocal(p.starts_at) : ""); if (d) out.push('<span class="pchip due">' + esc(relDay(fromLocal(d))) + " " + esc(fmtTime(fromLocal(d))) + " &rarr; " + (context === "personal" ? "Google" : "M365") + "</span>"); }
   if (k === "value") { const m = g("metric", p.metric), v = g("value", p.value); if (m || v) out.push('<span class="pchip">' + esc(m || "?") + " = " + esc(v == null ? "?" : v) + esc(g("unit", p.unit) || "") + "</span>"); }
+  if (k === "sched" && p.every) out.push('<span class="pchip due">every ' + esc(p.every.label) + "</span>");
   if (k === "spec") { const kk = g("spec_key", p.spec_key), v = g("spec_value", p.spec_value); if (kk || v) out.push('<span class="pchip">' + esc(kk || "?") + ": " + esc(v || "?") + "</span>"); }
   capTags().forEach((t) => out.push('<span class="pchip tag">#' + esc(t) + "</span>"));
   if (herePlace && placeAccepted) out.push('<span class="pchip sug">at ' + esc(herePlace.name) + "</span>");
@@ -2694,6 +2709,20 @@ $("save").addEventListener("click", async () => {
   err("");
   $("save").disabled = true;
 
+  const p0 = cap.p || parseLine(text);
+  if (effectiveKind() === "sched" && p0.every) {
+    const th0 = capThing();
+    if (!navigator.onLine) { err("A repeating schedule needs a connection to save."); $("save").disabled = false; return; }
+    const r = await fetch("/api/schedules", { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ context, subject_id: th0 ? th0.id : null, label: p0.body || ("Every " + p0.every.label),
+        every_days: p0.every.days || null, every_value: p0.every.value || null, metric: p0.every.metric || null }) }).catch(() => null);
+    $("save").disabled = false;
+    if (!r || !r.ok) { err("Could not save that schedule."); return; }
+    $("body").value = ""; linkTo = null; paintAgainst(); resetCapture();
+    toast("Repeats every " + p0.every.label + (th0 ? " on " + th0.name : ""));
+    loadCounts();
+    return;
+  }
   const { lat, lng } = await coords();
   const p = cap.p || parseLine(text);
   const kind = effectiveKind();
@@ -3055,6 +3084,21 @@ function schedRow(sc) {
     '<div class="bar2"><i class="' + cls + '" style="width:' + Math.round((n.progress || 0) * 100) + '%"></i></div></div>' +
     '<button class="dn" data-scheddone="' + esc(sc.id) + '">Done</button></div>';
 }
+function schedCalLink(sc) {
+  const n = sc.next || {};
+  if (n.when == null) return "";
+  const pad2 = (x) => String(x).padStart(2, "0");
+  const d = new Date(n.when);
+  const day = d.getFullYear() + pad2(d.getMonth() + 1) + pad2(d.getDate());
+  const next = new Date(n.when + DAY_MS);
+  const day2 = next.getFullYear() + pad2(next.getMonth() + 1) + pad2(next.getDate());
+  const title = sc.label + (sc.subject_name ? " \u2014 " + sc.subject_name : "");
+  let rec = "";
+  if (sc.fixed_month) rec = "RRULE:FREQ=YEARLY";
+  else if (sc.every_days) rec = sc.every_days % 7 === 0 ? "RRULE:FREQ=WEEKLY;INTERVAL=" + (sc.every_days / 7) : "RRULE:FREQ=DAILY;INTERVAL=" + sc.every_days;
+  return "https://calendar.google.com/calendar/render?action=TEMPLATE&text=" + encodeURIComponent(title) +
+    "&dates=" + day + "/" + day2 + (rec ? "&recur=" + encodeURIComponent(rec) : "") + "&details=" + encodeURIComponent("From Note");
+}
 
 async function loadDue() {
   const box = $("dueBody");
@@ -3406,7 +3450,7 @@ $("fab").addEventListener("click", () => {
   if (!m.hidden) { m.hidden = true; return; }
   const b = (l, d) => '<button data-fab="' + d + '">' + l + "</button>";
   m.innerHTML = '<div class="mh">New</div>' + b("Note", "note") + b("To-do", "todo") + b("Appointment", "appt") +
-    b("Value (a reading)", "value") + b("Spec", "spec") + '<div class="mh">Also</div>' + b("Thing", "thing") + b("Place", "place") + b("Schedule", "sched");
+    b("Value (a reading)", "value") + b("Spec", "spec") + '<div class="mh">Also</div>' + b("Thing", "thing") + b("Place", "place") + b("Repeating schedule", "sched");
   m.hidden = false;
 });
 $("fabMenu").addEventListener("click", (e) => {
@@ -3837,6 +3881,7 @@ document.querySelector("nav").addEventListener("click", (e) => {
    One line per release, newest first. Kept deliberately short: it exists to answer
    "did the thing I asked for actually ship", not to be release notes. */
 const RELEASES = [
+  ["2.0.1", "Darker work maroon; readable links on Today; \u201cevery 30 days\u201d or \u201cevery 5000 mi\u201d in the capture line makes a repeating schedule; schedules link to Google Calendar as repeating events"],
   ["2.0.0", "Kinds: note, to-do, appointment, value, spec. One capture line with @thing #tag !due. Tags, Due, Inbox, Today, a table with CSV, saved views, schedules by date or reading, calendar links, undo instead of confirm"],
   ["1.24.0", "Work and Personal never mix: a switch in the header, maroon for work; places belong to a world; move a note across; Claude asks which"],
   ["1.23.0", "People, linked to places and notes; \u201cnew item X\u201d in a note adds it; search finds names; Things became Places and items"],
@@ -4838,7 +4883,12 @@ async function openSched(id, subjectId) {
       inp("scLastV", "Reading then", "number", s.last_value, "81000") +
     "</div>" +
     '<div class="actions"><button class="btn sm" id="scSave">Save</button>' +
-      (schedCur ? '<button class="btn sm danger" id="scDel">Delete</button>' : "") + "</div>";
+      (schedCur ? '<button class="btn sm danger" id="scDel">Delete</button>' : "") + "</div>" +
+    (schedCur && schedCalLink(schedCur)
+      ? '<p class="hint" style="margin-top:14px">Want the phone to remind you? Put it on the calendar as a repeating event: ' +
+        '<a href="' + schedCalLink(schedCur) + '" target="_blank" rel="noopener">Google Calendar</a>. ' +
+        "Note keeps the record; the calendar does the nagging.</p>"
+      : "");
   $("scSave").addEventListener("click", saveSched);
   if ($("scDel")) $("scDel").addEventListener("click", async () => {
     await fetch("/api/schedules/" + encodeURIComponent(schedCur.id), { method: "DELETE" });
