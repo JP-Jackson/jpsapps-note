@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#16222E">
-<meta name="app-version" content="2.0.1">
+<meta name="app-version" content="2.0.2">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Note">
@@ -94,16 +94,16 @@ addEventListener("appinstalled", function () {
   /* Two worlds, two keylines. Work is maroon, personal is the house blue, so which
      side you are on never needs reading. Every accent is a token, so this is the
      whole of it: one rule per theme state, layered under the contrast rules below. */
-  :root[data-world="work"]{--blue:#6B1A27; --blue-deep:#45101A}
+  :root[data-world="work"]{--blue:#2E3A45; --blue-deep:#1C242C}
   @media (prefers-color-scheme:dark){
-    :root[data-world="work"]:not([data-theme="light"]){--blue:#C2404F; --blue-deep:#6B1A27}
+    :root[data-world="work"]:not([data-theme="light"]){--blue:#8FA3B5; --blue-deep:#4A5A6A}
   }
-  :root[data-world="work"][data-theme="dark"]{--blue:#C2404F; --blue-deep:#6B1A27}
-  :root[data-world="work"][data-contrast="high"]{--blue:#6E0F1F; --blue-deep:#3E0810}
+  :root[data-world="work"][data-theme="dark"]{--blue:#8FA3B5; --blue-deep:#4A5A6A}
+  :root[data-world="work"][data-contrast="high"]{--blue:#1C242C; --blue-deep:#0B0F13}
   @media (prefers-color-scheme:dark){
-    :root[data-world="work"][data-contrast="high"]:not([data-theme="light"]){--blue:#FF8A96; --blue-deep:#8A2433}
+    :root[data-world="work"][data-contrast="high"]:not([data-theme="light"]){--blue:#C9D6E2; --blue-deep:#6A7D90}
   }
-  :root[data-world="work"][data-theme="dark"][data-contrast="high"]{--blue:#FF8A96; --blue-deep:#8A2433}
+  :root[data-world="work"][data-theme="dark"][data-contrast="high"]{--blue:#C9D6E2; --blue-deep:#6A7D90}
   /* High contrast is a separate axis from light/dark, so it layers on top of
      whichever theme is active. §10 deliberately keeps dark surfaces at 12-15%
      lightness to avoid glare — that is the right default, but when someone asks for
@@ -3881,6 +3881,7 @@ document.querySelector("nav").addEventListener("click", (e) => {
    One line per release, newest first. Kept deliberately short: it exists to answer
    "did the thing I asked for actually ship", not to be release notes. */
 const RELEASES = [
+  ["2.0.2", "Work is charcoal now, not maroon"],
   ["2.0.1", "Darker work maroon; readable links on Today; \u201cevery 30 days\u201d or \u201cevery 5000 mi\u201d in the capture line makes a repeating schedule; schedules link to Google Calendar as repeating events"],
   ["2.0.0", "Kinds: note, to-do, appointment, value, spec. One capture line with @thing #tag !due. Tags, Due, Inbox, Today, a table with CSV, saved views, schedules by date or reading, calendar links, undo instead of confirm"],
   ["1.24.0", "Work and Personal never mix: a switch in the header, maroon for work; places belong to a world; move a note across; Claude asks which"],

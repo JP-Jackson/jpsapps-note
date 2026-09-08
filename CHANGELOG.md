@@ -3,6 +3,9 @@
 Mirrors the list shown in Settings. One line per release — enough to answer
 "did the thing I asked for actually ship", not full release notes.
 
+## 2.0.2
+Work accent is charcoal (#2E3A45 light, #8FA3B5 dark), picked from a swatch sheet.
+
 ## 2.0.1
 Work is a darker maroon. Links on Today are ink and underlined instead of an
 unreadable blue. Typing `every 30 days` or `every 5000 mi` in the capture line makes
