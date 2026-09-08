@@ -236,7 +236,7 @@ Asked seven questions; the answers that shaped it:
   inferring one from the notes made there. A place created from the app takes the
   screen's world.
 - **The switch is in the header** — the only place the two sides meet — and the
-  **keyline and accent are maroon for work, blue for personal** (JP's colours). Every
+  **keyline and accent are charcoal for work (maroon until 2.0.2), blue for personal** (JP's colours). Every
   accent was already a token, so this is one `data-world` attribute on `<html>`.
 - The per-form context choosers (add item, edit item, edit person, import) are
   **hidden, not removed**: they exist in the DOM preset to the world, so the old
