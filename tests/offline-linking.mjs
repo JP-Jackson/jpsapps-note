@@ -21,6 +21,12 @@ await p.evaluate(async (n) => {
 await p.evaluate(() => sessionStorage.setItem("note-splash", "1"));
 await p.reload({ waitUntil: "networkidle" });
 await p.waitForTimeout(800);
+await p.click('nav [data-view="capture"]');
+await p.waitForTimeout(300);
+// Boot lands on Today when online (§ the landing choice in boot()); every check
+// below is about the capture screen, so go there first.
+await p.click('nav [data-view="capture"]');
+await p.waitForTimeout(300);
 
 // ============ A. link while OFFLINE, entry still in the queue ============
 await ctx.setOffline(true);

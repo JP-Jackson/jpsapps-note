@@ -15,6 +15,8 @@ const boot = async () => {
   await p.goto(B, { waitUntil: "networkidle" });
   await p.evaluate(() => sessionStorage.setItem("note-splash", "1"));
   await p.reload({ waitUntil: "networkidle" });
+await p.click('nav [data-view="capture"]');
+await p.waitForTimeout(300);
   await p.waitForTimeout(1200);
 };
 await boot();

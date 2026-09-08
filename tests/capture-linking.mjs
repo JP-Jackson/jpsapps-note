@@ -18,10 +18,16 @@ await p.goto(B, { waitUntil: "networkidle" });
 await p.evaluate(() => sessionStorage.setItem("note-splash", "1"));
 await p.reload({ waitUntil: "networkidle" });
 await p.waitForTimeout(800);
+await p.click('nav [data-view="capture"]');
+await p.waitForTimeout(300);
+// Boot lands on Today when online (§ the landing choice in boot()); every check
+// below is about the capture screen, so go there first.
+await p.click('nav [data-view="capture"]');
+await p.waitForTimeout(300);
 
 // ---------------------------------------------------------------- contexts
-const chips = await p.$$eval("#chips .chip", (n) => n.map((x) => x.textContent.trim()));
-check(JSON.stringify(chips) === '["Work","Personal"]', `the world switch is Work/Personal only (got ${JSON.stringify(chips)})`);
+const world = await p.textContent("#worldPill");
+check(world.trim() === "work", `the world pill says which world you are in (got ${world.trim()})`);
 
 // ------------------------------------------------------- create two things
 for (const [name, type, ctxv] of [["White truck","vehicle","work"],["Shop Compressor","equipment","work"]]) {
@@ -32,6 +38,8 @@ for (const [name, type, ctxv] of [["White truck","vehicle","work"],["Shop Compre
 }
 await p.reload({ waitUntil: "networkidle" });
 await p.waitForTimeout(600);
+await p.click('nav [data-view="capture"]');
+await p.waitForTimeout(300);
 
 // ------------------------------------- no pre-save picker, no bar until saved
 check(await p.$("#subjChips") === null, "pre-save subject picker is gone");

@@ -20,6 +20,8 @@ const boot = async () => {
   await p.goto(B, { waitUntil: "networkidle" });
   await p.evaluate(() => sessionStorage.setItem("note-splash", "1"));
   await p.reload({ waitUntil: "networkidle" });
+await p.click('nav [data-view="capture"]');
+await p.waitForTimeout(300);
   await p.waitForTimeout(1200);
 };
 await boot();
@@ -47,6 +49,12 @@ const lease = (await post("/api/places", { name: "zzLease " + TAG, lat: 29.2, ln
 const battery = (await post("/api/places", { name: "zzBattery " + TAG, lat: 29.3, lng: -96.7 })).body.id;
 await p.reload({ waitUntil: "networkidle" });
 await p.waitForTimeout(800);
+await p.click('nav [data-view="capture"]');
+await p.waitForTimeout(300);
+// Boot lands on Today when online (§ the landing choice in boot()); every check
+// below is about the capture screen, so go there first.
+await p.click('nav [data-view="capture"]');
+await p.waitForTimeout(300);
 await p.click('nav [data-view="subjects"]');
 await p.click('[data-tmode="people"]');
 await p.click("#addSubject");

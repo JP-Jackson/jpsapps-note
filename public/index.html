@@ -140,7 +140,6 @@ addEventListener("appinstalled", function () {
   :root[data-contrast="high"] .fontrow,
   :root[data-contrast="high"] textarea,
   :root[data-contrast="high"] input[type=search]{border-width:2px}
-  :root[data-contrast="high"] header .host{color:rgba(255,255,255,.7)}
   :root[data-contrast="high"] #ver{color:rgba(255,255,255,.8)}
 
   /* --name-lift centres the wordmark's INK against the icon. Every font needs its
@@ -169,16 +168,15 @@ addEventListener("appinstalled", function () {
     display:flex;align-items:center;gap:11px;position:sticky;top:0;z-index:20}
   header .mark{flex:none;display:block;width:38px;height:38px}
   header .mark .keyline{stroke:var(--blue)}
-  /* The world switch: a strip across the chrome under the brand row, the lit half
-     is where you are. Its own row because a 390px phone has no room beside the
-     status pill — the first cut put it there and the pill covered it. */
-  header{flex-wrap:wrap}
-  header #chips{flex-basis:100%;order:9;margin:8px 0 0;gap:0;
-    border:1px solid rgba(255,255,255,.28);border-radius:8px;overflow:hidden}
-  header #chips .chip{flex:1 1 0;min-width:0;padding:8px 6px;border:0;border-radius:0;
-    background:transparent;color:rgba(255,255,255,.55);font:600 11px/1 var(--font-mono);
-    letter-spacing:.08em;text-transform:uppercase}
-  header #chips .chip[aria-pressed="true"]{background:var(--blue);color:#fff}
+  /* The world switch: one pill saying where you are, in the slot the domain used
+     to hold. A full-width strip across its own row spent 50px of every screen
+     saying what the accent colour already says — and with two worlds a tap has
+     only one possible meaning. Swiping the page sideways does the same thing. */
+  #worldPill{border:1px solid rgba(255,255,255,.3);border-radius:999px;
+    background:var(--blue);color:#fff;padding:4px 12px;cursor:pointer;
+    font:600 10px/1.4 var(--font-mono);letter-spacing:.1em;text-transform:uppercase;
+    white-space:nowrap;transition:background .18s ease}
+  #worldPill:active{transform:translateY(1px)}
   /* align-items:center centres the text BOX; all-caps ink sits in its upper part
      because the descender space below the baseline is empty, so the word reads high.
      The nudge is measured against the shipped font, not guessed — see --name-lift. */
@@ -190,11 +188,8 @@ addEventListener("appinstalled", function () {
     color:rgba(255,255,255,.42);white-space:nowrap;align-self:flex-end;
     padding-bottom:9px;margin-left:-3px}
   #ver.stale{color:var(--warn)}
-  /* Present but recessive: says which app this is without competing with it. */
-  header .host{font:400 9px/1 var(--font-mono);
-    letter-spacing:.06em;color:rgba(255,255,255,.24);white-space:nowrap}
   /* Status is a dot PLUS small text, always visible (§6). The word does the work. */
-  /* Status over domain, right-aligned: the pair that changes lives opposite the
+  /* Status over world, right-aligned: the pair that changes lives opposite the
      pair that identifies. */
   header .meta-r{margin-left:auto;display:flex;flex-direction:column;
     align-items:flex-end;gap:5px;min-width:0}
@@ -1064,7 +1059,7 @@ addEventListener("appinstalled", function () {
 
   <span class="meta-r">
     <button id="status" title="Tap to sync"><span id="dot"></span><span id="statusText">SYNCED</span></button>
-    <span class="host">jpsapps.com</span>
+    <button id="worldPill" aria-label="World"><span id="worldName">work</span></button>
   </span>
   <button id="hdrSearch" aria-label="Search">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
@@ -1076,11 +1071,6 @@ addEventListener("appinstalled", function () {
       <path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 9 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 9a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/>
     </svg>
   </button>
-  <!-- Work and personal never intertwine. This is the only place they meet. -->
-  <div class="chips" id="chips" role="group" aria-label="World">
-    <button class="chip" data-ctx="work" aria-pressed="true">Work</button>
-    <button class="chip" data-ctx="personal" aria-pressed="false">Personal</button>
-  </div>
 </header>
 
 <main>
@@ -1754,9 +1744,8 @@ document.documentElement.dataset.world = context;
 const W = () => "world=" + encodeURIComponent(context);
 const otherWorld = () => (context === "work" ? "personal" : "work");
 function paintChips() {
-  $("chips").querySelectorAll(".chip").forEach((c) => {
-    c.setAttribute("aria-pressed", String(c.dataset.ctx === context));
-  });
+  $("worldName").textContent = context;
+  $("worldPill").setAttribute("aria-label", "World: " + context + ". Switch to " + otherWorld() + ".");
 }
 /**
  * Flip worlds. Everything on screen belongs to one side, so everything reloads:
@@ -1785,10 +1774,35 @@ function setWorld(next) {
   savedViews = [];
   refreshCurrentView();
 }
-$("chips").addEventListener("click", (e) => {
-  const chip = e.target.closest(".chip");
-  if (chip) setWorld(chip.dataset.ctx);
-});
+$("worldPill").addEventListener("click", () => setWorld(otherWorld()));
+
+/* Swipe the page sideways to change worlds. Work sits left of personal, as the
+   old strip had them, so the gesture matches where they used to be: drag left to
+   go right. Deliberately fussy about what counts — a swipe that is mostly
+   vertical is a scroll, and one that starts in a sideways-scrolling strip or a
+   text box belongs to that control, not to this. */
+(() => {
+  let sx = 0, sy = 0, live = false;
+  const mine = (t) => !t.closest("input, textarea, select, .tagsug, .dtquick, .kinds, .chips, [data-noswipe]") &&
+    !t.closest("table, pre, .scrollx");
+  addEventListener("touchstart", (e) => {
+    const t = e.touches[0];
+    live = e.touches.length === 1 && topOverlay() === null && mine(e.target);
+    sx = t.clientX; sy = t.clientY;
+  }, { passive: true });
+  addEventListener("touchend", (e) => {
+    if (!live) return;
+    live = false;
+    const t = e.changedTouches[0], dx = t.clientX - sx, dy = t.clientY - sy;
+    if (Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 2) return;
+    const next = dx < 0 ? "personal" : "work";
+    if (next === context) return;
+    setWorld(next);
+    // A world change repaints everything at once; a tick of feedback says the
+    // swipe was read rather than something having gone wrong.
+    if (navigator.vibrate) navigator.vibrate(12);
+  }, { passive: true });
+})();
 paintChips();
 
 /* ---- follow-up flag ----

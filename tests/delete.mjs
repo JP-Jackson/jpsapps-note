@@ -14,6 +14,8 @@ await p.goto(B, { waitUntil: "networkidle" });
 await p.evaluate(() => sessionStorage.setItem("note-splash", "1"));
 await p.reload({ waitUntil: "networkidle" });
 await p.waitForTimeout(700);
+await p.click('nav [data-view="capture"]');
+await p.waitForTimeout(300);
 
 const api = (path, opts) => p.evaluate(async ([u, o]) => {
   const r = await fetch(u, o); let b = null; try { b = await r.json(); } catch {}
