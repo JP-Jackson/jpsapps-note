@@ -75,6 +75,9 @@ addEventListener("appinstalled", function () {
     --navy:#16222E; --blue:#2C7BC4; --blue-deep:#1B5486;
     --bg:#E6E9EC; --card:#FFF; --ink:#121A22; --ink-2:#586573; --line:#D2D8DE;
     --ok:#1f7a4d; --warn:#D9931A; --bad:#D9483C;
+    /* The day you picked has to read as picked at a glance, and work's charcoal
+       tint is too quiet for that -- so this one accent stays blue in both worlds. */
+    --pick:#2C7BC4; --pick-ink:#FFF;
     --press:4px; --nav-h:60px;
     --font-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
     --font-brand:"Caveat",cursive;
@@ -84,12 +87,14 @@ addEventListener("appinstalled", function () {
       --bg:#171B20; --card:#222831; --ink:#E6EBF0; --ink-2:#94A1AE; --line:#323A45;
       --blue:#5AA9EE; --blue-deep:#2C7BC4;
       --ok:#5ad699; --warn:#F0B44C; --bad:#FF8478;
+      --pick:#5AA9EE; --pick-ink:#0F1620;
     }
   }
   :root[data-theme="dark"]{
     --bg:#171B20; --card:#222831; --ink:#E6EBF0; --ink-2:#94A1AE; --line:#323A45;
     --blue:#5AA9EE; --blue-deep:#2C7BC4;
     --ok:#5ad699; --warn:#F0B44C; --bad:#FF8478;
+    --pick:#5AA9EE; --pick-ink:#0F1620;
   }
   /* Two worlds, two keylines. Work is maroon, personal is the house blue, so which
      side you are on never needs reading. Every accent is a token, so this is the
@@ -112,18 +117,21 @@ addEventListener("appinstalled", function () {
   :root[data-contrast="high"]{
     --bg:#FFFFFF; --card:#FFFFFF; --ink:#000000; --ink-2:#26303A; --line:#000000;
     --blue:#0B4F8F; --blue-deep:#062F55;
+    --pick:#0B4F8F; --pick-ink:#FFF;
     --ok:#0A5C36; --warn:#7A4A00; --bad:#A31408;
   }
   @media (prefers-color-scheme:dark){
     :root[data-contrast="high"]:not([data-theme="light"]){
       --bg:#000000; --card:#0B0F14; --ink:#FFFFFF; --ink-2:#D6DEE6; --line:#FFFFFF;
       --blue:#7CC0F5; --blue-deep:#2C7BC4;
+      --pick:#7CC0F5; --pick-ink:#000;
       --ok:#6BF0AE; --warn:#FFC861; --bad:#FF9A8F;
     }
   }
   :root[data-theme="dark"][data-contrast="high"]{
     --bg:#000000; --card:#0B0F14; --ink:#FFFFFF; --ink-2:#D6DEE6; --line:#FFFFFF;
     --blue:#7CC0F5; --blue-deep:#2C7BC4;
+    --pick:#7CC0F5; --pick-ink:#000;
     --ok:#6BF0AE; --warn:#FFC861; --bad:#FF9A8F;
   }
   /* Thin hairlines are the first thing to disappear for low vision, so thicken them. */
@@ -874,8 +882,8 @@ addEventListener("appinstalled", function () {
   .dtgrid button{aspect-ratio:1;border:0;border-radius:9px;background:transparent;color:var(--ink);
     font:400 15px var(--font-ui);cursor:pointer;padding:0}
   .dtgrid button.out{color:var(--ink-2);opacity:.45}
-  .dtgrid button.today{box-shadow:inset 0 0 0 1px var(--blue)}
-  .dtgrid button.on{background:var(--blue);color:#fff;font-weight:600}
+  .dtgrid button.today{box-shadow:inset 0 0 0 1px var(--pick)}
+  .dtgrid button.on{background:var(--pick);color:var(--pick-ink);font-weight:600}
   .dtquick{display:flex;gap:6px;margin:10px 0 0;flex-wrap:wrap}
   .dtquick button{flex:1;min-width:72px;border:1px solid var(--line);border-radius:9px;
     background:var(--bg);color:var(--ink);padding:9px 6px;font:500 12px var(--font-mono);cursor:pointer}
@@ -893,6 +901,14 @@ addEventListener("appinstalled", function () {
     background:var(--card);color:var(--ink);padding:10px 11px;font:400 15px var(--font-ui)}
   .kfields input:focus,.tagsin:focus{outline:2px solid var(--blue);outline-offset:-1px}
   .tagsin{margin-bottom:10px}
+  /* Tag suggestions. A datalist matches the whole field, so it falls silent the
+     moment the field holds a comma -- which is exactly when a duplicate becomes
+     easy to type. These chips complete the fragment after the last comma. */
+  .tagsug{display:flex;gap:6px;overflow-x:auto;margin:-4px 0 10px;padding-bottom:2px}
+  .tagsug button{flex:none;border:1px solid var(--line);border-radius:999px;background:var(--card);
+    color:var(--ink);padding:6px 11px;font:500 12px var(--font-mono);cursor:pointer;white-space:nowrap}
+  .tagsug button i{font-style:normal;color:var(--ink-2);margin-left:5px}
+  .tagsug button:active{border-color:var(--pick);color:var(--pick)}
   #parsed{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
   #parsed:empty{display:none}
   .pchip{display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border-radius:999px;
@@ -1128,8 +1144,7 @@ addEventListener("appinstalled", function () {
       <code>new item X</code><span>adds a thing and files this on it</span>
     </div>
     <div class="kfields" id="kfields" hidden></div>
-    <input class="tagsin" id="tagsIn" placeholder="tags, comma separated" autocomplete="off" list="tagList">
-    <datalist id="tagList"></datalist>
+    <input class="tagsin" id="tagsIn" placeholder="tags, comma separated" autocomplete="off" data-tags="1">
 
     <h2>Just captured</h2>
     <div id="log"><div class="empty">Nothing yet.</div></div>
@@ -2206,9 +2221,83 @@ async function loadKnownTags() {
     const r = await fetch("/api/tags?" + W());
     if (!r.ok) return;
     knownTags = (await r.json()).tags || [];
-    $("tagList").innerHTML = knownTags.map((t) => '<option value="' + esc(t.name) + '">').join("");
   } catch {}
 }
+
+/* ---- tag suggestions ----
+   The field takes a comma-separated list, so help has to follow the caret: match
+   only the fragment after the last comma, and never offer a tag the field already
+   holds. That is what stops the same tag going in twice under two spellings.
+   One delegated set of handlers covers every tag field -- capture, entry, thing. */
+const normTag = (t) => t.trim().toLowerCase().replace(/^#/, "");
+
+/** The tags worth offering for what is typed so far, best match first. */
+function tagMatches(inp) {
+  const parts = inp.value.split(",");
+  const frag = normTag(parts[parts.length - 1]);
+  const have = new Set(parts.slice(0, -1).map(normTag).filter(Boolean));
+  return knownTags
+    .filter((t) => !have.has(t.name) && t.name !== frag && (!frag || t.name.includes(frag)))
+    // A tag that starts with what you typed is the one you meant; past that, the
+    // one you use most. Sorting by count alone buries a short exact prefix.
+    .sort((a, b) => (a.name.startsWith(frag) === b.name.startsWith(frag)
+      ? (b.count || 0) - (a.count || 0)
+      : (a.name.startsWith(frag) ? -1 : 1)))
+    .slice(0, 8);
+}
+
+function tagStrip(inp) {
+  let box = inp.nextElementSibling;
+  if (!box || !box.classList.contains("tagsug")) {
+    box = document.createElement("div");
+    box.className = "tagsug";
+    inp.after(box);
+  }
+  return box;
+}
+
+function paintTagSug(inp) {
+  const box = tagStrip(inp), list = tagMatches(inp);
+  box.innerHTML = list.map((t) => '<button type="button" data-tag="' + esc(t.name) + '">#' + esc(t.name) +
+    (t.count ? "<i>" + t.count + "</i>" : "") + "</button>").join("");
+  box.hidden = !list.length;
+}
+
+function useTag(inp, name) {
+  const parts = inp.value.split(",");
+  parts[parts.length - 1] = name;
+  // Trailing comma: the next tag is usually why you opened this field.
+  inp.value = parts.map((x) => normTag(x)).filter(Boolean).join(", ") + ", ";
+  inp.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+/** Tidy on the way out, so what is saved is what the chips would have written. */
+function tidyTags(inp) {
+  const out = [];
+  inp.value.split(",").map(normTag).forEach((t) => { if (t && !out.includes(t)) out.push(t); });
+  const v = out.join(", ");
+  if (v !== inp.value) { inp.value = v; inp.dispatchEvent(new Event("input", { bubbles: true })); }
+}
+
+const isTagField = (n) => n && n.matches && n.matches(".tagsin[data-tags]");
+document.addEventListener("input", (e) => { if (isTagField(e.target)) paintTagSug(e.target); });
+document.addEventListener("focusin", (e) => { if (isTagField(e.target)) paintTagSug(e.target); });
+document.addEventListener("focusout", (e) => {
+  if (!isTagField(e.target)) return;
+  tidyTags(e.target);
+  tagStrip(e.target).hidden = true;
+});
+// pointerdown, not click: the default would move focus out of the field first,
+// which closes the strip out from under the tap.
+document.addEventListener("pointerdown", (e) => {
+  const b = e.target.closest && e.target.closest(".tagsug [data-tag]");
+  if (!b) return;
+  e.preventDefault();
+  const inp = b.parentNode.previousElementSibling;
+  useTag(inp, b.dataset.tag);
+  paintTagSug(inp);
+  inp.focus();
+});
 
 /* ---- places (§4) ----
    Coordinates are stored on every capture regardless. A named place is matched by
@@ -3834,7 +3923,7 @@ function renderDetail(rejectedText) {
     "<h2>About</h2>" +
     '<div class="things-pick" id="dthings"></div>' +
     '<input class="tagsin" id="dthingQ" placeholder="add a thing\u2026" autocomplete="off">' +
-    '<input class="tagsin" id="dtags" value="' + esc((e.tags || []).join(", ")) + '" placeholder="tags, comma separated" list="tagList">' +
+    '<input class="tagsin" id="dtags" value="' + esc((e.tags || []).join(", ")) + '" placeholder="tags, comma separated" autocomplete="off" data-tags="1">' +
     calLinks(e) +
     '<div class="actions">' +
       '<button class="btn sm" id="saveEdit">Save</button>' +
@@ -3945,7 +4034,7 @@ async function saveEdit() {
     unit: dkind === "value" ? (v.unit || null) : null,
     spec_key: dkind === "spec" ? (v.spec_key || null) : null,
     spec_value: dkind === "spec" ? (v.spec_value || null) : null,
-    tags: $("dtags").value.split(",").map((x) => x.trim()).filter(Boolean),
+    tags: [...new Set($("dtags").value.split(",").map(normTag).filter(Boolean))],
     subject_ids: dsel,
     reviewed: true,
   };
@@ -5166,7 +5255,7 @@ function renderSubjectEdit() {
       'margin-bottom:6px">' + homeOptions(homeValue(s), s.id) + "</select>" +
     '<p class="empty" style="padding-top:0">Moving it brings whatever is inside it along.</p>' +
     "<h2>Tags</h2>" +
-    '<input class="tagsin" id="subjTags" value="' + esc((s.tags || []).join(", ")) + '" placeholder="tags, comma separated" list="tagList">' +
+    '<input class="tagsin" id="subjTags" value="' + esc((s.tags || []).join(", ")) + '" placeholder="tags, comma separated" autocomplete="off" data-tags="1">' +
     "<h2>Specs</h2><div id=\"attrs\">" + rows + "</div>" +
     '<button class="btn ghost sm" id="addAttr" style="margin-bottom:12px">+ Add field</button>' +
     '<div class="actions">' +
@@ -5234,7 +5323,7 @@ async function saveSubject() {
         name: $("subjName").value.trim() || currentSubject.name,
         context: currentSubject.context,
         attributes,
-        tags: $("subjTags").value.split(",").map((x) => x.trim()).filter(Boolean),
+        tags: [...new Set($("subjTags").value.split(",").map(normTag).filter(Boolean))],
         // Both keys go every time, nulls included: null is how a thing is moved
         // back out to the top level, so omitting them would make "nowhere in
         // particular" the one choice that could not be saved.
